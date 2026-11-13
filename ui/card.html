@@ -1,4 +1,15 @@
 <!doctype html>
+<!--
+  The Wise card shown inside Claude's chat (MCP Apps).
+
+  How it gets here: src/card.js serves this file as the resource ui://wise/card.html, with each
+  __ASSET:file__ placeholder replaced by that file from ui/assets/ as a data URI. Claude Desktop
+  renders it in a sandboxed iframe and sends it each tool result's structuredContent.
+  The `kind` field picks the layout: balances, recipients, quote or payment.
+
+  The card is display-only. It can't approve anything; only the web app can.
+  It must stay a single self-contained file.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
