@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Wise card</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  /* Tokens + components from the WiseStart Hackathon Figma kit:
+     Palette, Typography, Logo, Section Card, Bullet Point, Stepper, Button, money input. */
+  :root {
+    --bright-green: #9FE870;
+    --accent-hover: #80E142;
+    --forest: #163300;
+    --content-primary: #0E0F0C;
+    --content-secondary: #454745;
+    --content-tertiary: #6A6C6A;
+    --interactive-secondary: #868685;
+    --border-soft: rgba(14, 15, 12, 0.12);
+    --neutral: rgba(22, 51, 0, 0.08);
+    --neutral-strong: rgba(22, 51, 0, 0.14);
+    --positive: #2F5711;
+    --warning: #EDC843;
+    --warning-ink: #5C4A00;
+    --warning-soft: rgba(237, 200, 67, 0.28);
+    --negative: #A8200D;
+    --negative-soft: rgba(168, 32, 13, 0.10);
+  }
+  * { box-sizing: border-box; }
+  /* Transparent page; color-scheme is set to match the host (see setTheme) so the browser
+     doesn't paint an opaque square backdrop behind the rounded card. */
+  :root { color-scheme: light; }
+  html, body { margin: 0; background: transparent; }
+  body {
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--content-primary);
+    -webkit-font-smoothing: antialiased;
+    font-size: 14px; line-height: 22px; letter-spacing: 0.01em;
+    padding: 4px; /* room so the rounded corners and border are never clipped */
+  }
+
+  /* Figma "Section Card": white, 24px radius, 1px rgba(14,15,12,.12) border, 24px padding.
+     Always the light Figma palette, so text stays readable in light and dark Claude. */
+  .card { background: #FFFFFF; border: 1px solid rgba(14, 15, 12, 0.12); border-radius: 24px; padding: 24px; max-width: 560px; overflow: hidden; box-shadow: 0 1px 2px rgba(14, 15, 12, 0.04); }
+
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .logo { height: 20px; width: auto; display: block; }
+  .logo.lime { display: none; }
+  .chip { display: inline-flex; align-items: center; height: 28px; padding: 0 12px; border-radius: 100px; background: var(--bright-green); color: var(--forest); font-weight: 600; font-size: 13px; white-space: nowrap; }
+  .mock { font-size: 12px; color: var(--content-tertiary); white-space: nowrap; }
+
+  /* Hero */
+  .eyebrow { color: var(--content-secondary); margin-bottom: 4px; }
+  .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .amount { font-size: 34px; line-height: 40px; font-weight: 600; letter-spacing: -0.03em; }
+  .amount .ccy { font-size: 18px; font-weight: 600; letter-spacing: 0; margin-left: 4px; color: var(--content-secondary); }
+  .sub-eur { color: var(--content-secondary); margin-top: 2px; }
+  .status { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border-radius: 100px; font-weight: 600; font-size: 14px; white-space: nowrap; }
+  .status.ok { background: var(--bright-green); color: var(--forest); }
+  .status.wait { background: var(--warning-soft); color: var(--warning-ink); }
+  .status.no { background: var(--negative-soft); color: var(--negative); }
+  .pulse { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+
+  /* Recipient row */
+  .row { display: flex; align-items: center; gap: 16px; margin-top: 20px; }
+  .avatar { position: relative; width: 48px; height: 48px; border-radius: 50%; background: var(--neutral); display: grid; place-items: center; font-weight: 600; font-size: 16px; flex-shrink: 0; }
+  .avatar .badge { position: absolute; right: -4px; bottom: -4px; width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 2px var(--badge-ring, #fff); }
+  .flag { width: 24px; height: 24px; border-radius: 50%; display: block; flex-shrink: 0; box-shadow: 0 0 0 1px var(--border-soft); }
+  .row .meta { min-width: 0; flex: 1; }
+  .row b { display: block; font-size: 16px; line-height: 24px; font-weight: 600; }
+  .row small { display: block; color: var(--content-secondary); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Stepper (Figma "Stepper": 2px track, lime→forest progress, 8px dot, labels below) */
+  .stepper { position: relative; margin: 28px 4px 4px; }
+  .track { position: relative; height: 2px; background: var(--neutral); border-radius: 100px; }
+  .progress { position: absolute; left: 0; top: 0; height: 2px; border-radius: 100px 0 0 100px; background: url("__ASSET:progress-bar.png__") left / 100% 100% no-repeat, linear-gradient(90deg, #9FE870, #163300); }
+  .progress.fail { background: var(--negative); }
+  .dot { position: absolute; top: 50%; width: 8px; height: 8px; transform: translate(-50%, -50%); }
+  .dot.fail { border-radius: 50%; background: var(--negative); }
+  .labels { display: flex; justify-content: space-between; margin-top: 10px; }
+  .labels span { font-size: 14px; line-height: 22px; color: var(--content-secondary); opacity: .45; white-space: nowrap; }
+  .labels span.done { opacity: 1; font-weight: 600; }
+  .labels span.current { opacity: 1; font-weight: 600; color: var(--content-primary); }
+  .labels span.fail { opacity: 1; font-weight: 600; color: var(--negative); }
+
+  /* Bullet Point (Figma: 20px icon, Body large) */
+  .bullets { margin-top: 20px; }
+  .bullet { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; }
+  .bullet img { width: 20px; height: 20px; margin-top: 2px; flex-shrink: 0; }
+  .bullet p { margin: 0; font-size: 15px; line-height: 24px; color: var(--content-secondary); }
+  .bullet p strong { color: var(--positive); font-weight: 600; }
+  .bullet.neg p strong { color: var(--negative); }
+  .bullet .warn-icon { width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; background: var(--warning); color: #3A341C; display: grid; place-items: center; font-weight: 800; font-size: 13px; flex-shrink: 0; }
+
+  .rule { display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 16px; padding: 4px 10px; border-radius: 100px; background: var(--neutral); color: var(--content-secondary); margin-top: 8px; }
+
+  /* Button (Figma: 48px pill, bright green, Inter SemiBold 14) */
+  .btn { display: flex; align-items: center; justify-content: center; width: 100%; height: 48px; border: 0; border-radius: 50px; background: var(--bright-green); color: var(--forest); font: inherit; font-weight: 600; font-size: 14px; letter-spacing: 0.0125em; cursor: pointer; margin-top: 20px; }
+  .btn:hover { background: var(--accent-hover); }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .foot { color: var(--content-tertiary); font-size: 12px; line-height: 18px; margin-top: 12px; text-align: center; }
+
+  /* Balances / quote */
+  .title-sub { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; margin: 0 0 16px; }
+  .label { color: var(--content-secondary); margin-bottom: 8px; }
+  .bal { border: 1px solid var(--interactive-secondary); border-radius: 10px; height: 56px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .ccy-row { display: flex; align-items: center; gap: 8px; font-size: 16px; line-height: 24px; }
+  .ccy-dot { width: 24px; height: 24px; border-radius: 50%; background: var(--forest); color: var(--bright-green); display: grid; place-items: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+  .bal .amt { font-size: 16px; font-weight: 600; }
+  .total { display: flex; justify-content: space-between; color: var(--content-secondary); margin-top: 12px; }
+  .total b { color: var(--content-primary); }
+  .money { border: 1px solid var(--interactive-secondary); border-radius: 10px; min-height: 64px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .money .amt { font-size: 18px; font-weight: 600; line-height: 24px; letter-spacing: -0.01em; }
+  .fee { display: flex; align-items: center; justify-content: space-between; margin: 12px 0; }
+  .fee .left { display: flex; align-items: center; gap: 16px; font-weight: 600; }
+  .fee img { width: 24px; height: 24px; display: block; }
+  .fee .link { color: var(--forest); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+  .indent { margin-left: 40px; }
+
+  .skeleton { color: var(--content-secondary); display: flex; align-items: center; gap: 8px; }
+
+  /* Fallbacks if the host sandbox blocks embedded images */
+  .wordmark { font-weight: 700; font-size: 20px; line-height: 20px; letter-spacing: -0.04em; color: var(--forest); }
+  .glyph { width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #fff; flex-shrink: 0; }
+  .glyph.pos { background: #2F5711; }
+  .glyph.neg { background: #A8200D; }
+  .glyph.minus { width: 24px; height: 24px; margin: 0; background: var(--neutral-strong); color: var(--content-primary); font-size: 16px; }
+  .dot.solid { border-radius: 50%; background: var(--forest); }
+</style>
+</head>
+<body>
+<div class="card" id="root"><div class="skeleton"><span class="pulse"></span> Checking with your Wise Mandate…</div></div>
+<script>
+(() => {
+  const WISE_APP_URL = 'http://localhost:4000';
+  const ASSETS = {
+    logoForest: '__ASSET:wise-logo-forest.svg__',
+    logoLime: '__ASSET:wise-logo-lime.svg__',
+    pos: '__ASSET:bullet-positive.svg__',
+    neg: '__ASSET:bullet-negative.svg__',
+    dot: '__ASSET:progress-step.svg__',
+    minus: '__ASSET:minus-circle.svg__',
+  };
+  // Flags from the Figma "Flags" section. Empty string = not exported yet → symbol fallback.
+  const FLAGS = { EUR: '__ASSET:flag-eu.png__', GBP: '__ASSET:flag-gb.png__', JPY: '__ASSET:flag-jp.png__' };
+  const COUNTRY_FLAGS = { EE: '__ASSET:flag-ee.png__', JP: '__ASSET:flag-jp.png__', GB: '__ASSET:flag-gb.png__' };
+  const ibanFlag = (iban) => { const m = String(iban || '').match(/^\s*([A-Z]{2})/); return m ? COUNTRY_FLAGS[m[1]] || '' : ''; };
+  const RATES_PER_EUR = { EUR: 1, GBP: 0.85, JPY: 162 }; // same mock rates as the server, for the total
+  const SYMBOLS = { EUR: '€', GBP: '£', JPY: '¥' };
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const num = (a, c) => {
+    const d = c === 'JPY' || Number.isInteger(Number(a)) ? 0 : 2;
+    return Number(a).toLocaleString('en-GB', { minimumFractionDigits: d, maximumFractionDigits: d });
+  };
+  const fmt = (a, c) => (SYMBOLS[c] || '') + num(a, c) + (SYMBOLS[c] ? '' : ' ' + esc(c));
+  const initials = (n) => String(n || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+  const ccyDot = (c) => FLAGS[c]
+    ? `<img class="flag" data-fb="ccy:${esc(c)}" src="${FLAGS[c]}" width="24" height="24" alt="${esc(c)} flag" />`
+    : `<span class="ccy-dot">${esc(SYMBOLS[c] || String(c)[0])}</span>`;
+  // Avatar with initials + small country flag badge from the IBAN country (Figma Avatar, Flag=True)
+  const avatar = (name, iban) => {
+    const f = ibanFlag(iban);
+    return `<div class="avatar">${esc(initials(name))}${f ? `<img class="badge" data-fb="hide" src="${f}" width="20" height="20" alt="" />` : ''}</div>`;
+  };
+  const root = document.getElementById('root');
+
+  // If an embedded image can't load (blocked by the host's sandbox, or an asset is missing),
+  // swap it for a clean HTML/CSS equivalent instead of showing a broken-image icon.
+  const FALLBACK = {
+    logo: (img) => `<span class="${img.className} wordmark">Wise</span>`,
+    pos: () => '<span class="glyph pos">✓</span>',
+    neg: () => '<span class="glyph neg">✕</span>',
+    minus: () => '<span class="glyph minus">−</span>',
+    dot: (img) => `<span class="dot solid" style="${img.getAttribute('style') || ''}"></span>`,
+    hide: () => '',
+  };
+  document.addEventListener('error', (e) => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement) || !img.dataset.fb) return;
+    const kind = img.dataset.fb;
+    const html = kind.startsWith('ccy:')
+      ? `<span class="ccy-dot">${esc(SYMBOLS[kind.slice(4)] || kind.slice(4, 5))}</span>`
+      : (FALLBACK[kind] || FALLBACK.hide)(img);
+    img.outerHTML = html;
+  }, true);
+
+  // Theme: follow the host, fall back to the OS.
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  let hostTheme = null;
+  // The card itself always uses the light Figma palette (white Section Card). We only mirror the
+  // host's color-scheme on the document, so the iframe backdrop stays transparent (no square white box).
+  const setTheme = () => {
+    const t = hostTheme || (mq.matches ? 'dark' : 'light');
+    document.documentElement.dataset.theme = t;
+    document.documentElement.style.colorScheme = t;
+  };
+  mq.addEventListener?.('change', setTheme);
+  setTheme();
+
+  // ---- Minimal MCP Apps bridge (JSON-RPC 2.0 over postMessage to the host) ----
+  let nextId = 1;
+  const pending = new Map();
+  let hostCaps = {};
+  const send = (msg) => window.parent.postMessage({ jsonrpc: '2.0', ...msg }, '*');
+  const request = (method, params) =>
+    new Promise((resolve, reject) => {
+      const id = nextId++;
+      pending.set(id, { resolve, reject });
+      send({ id, method, params });
+    });
+  const notify = (method, params) => send({ method, params });
+
+  window.addEventListener('message', (e) => {
+    const m = e.data;
+    if (!m || m.jsonrpc !== '2.0') return;
+    if (m.id != null && !m.method) {
+      const p = pending.get(m.id);
+      if (p) { pending.delete(m.id); m.error ? p.reject(m.error) : p.resolve(m.result); }
+      return;
+    }
+    switch (m.method) {
+      case 'ui/notifications/tool-input': renderLoading(m.params?.arguments); break;
+      case 'ui/notifications/tool-result': render(m.params?.structuredContent, m.params); break;
+      case 'ui/notifications/host-context-changed': applyContext(m.params); break;
+      case 'ui/notifications/tool-cancelled': root.innerHTML = header() + '<div class="skeleton">Cancelled.</div>'; break;
+      default:
+        if (m.id != null) send({ id: m.id, result: {} }); // ack requests like ping / resource-teardown
+    }
+  });
+  function applyContext(ctx) { if (ctx?.theme) { hostTheme = ctx.theme; setTheme(); } }
+
+  new ResizeObserver(() => notify('ui/notifications/size-changed', { height: Math.ceil(document.documentElement.scrollHeight) })).observe(document.body);
+
+  request('ui/initialize', { appInfo: { name: 'wise-card', version: '0.3.0' }, appCapabilities: {}, protocolVersion: '2026-01-26' })
+    .then((r) => { hostCaps = r?.hostCapabilities || {}; applyContext(r?.hostContext); notify('ui/notifications/initialized', {}); })
+    .catch(() => {});
+
+  // ---- Rendering ----
+  const header = () => `<div class="top">
+      <div class="brand">
+        <img class="logo forest" data-fb="logo" src="${ASSETS.logoForest}" alt="Wise" />
+        <img class="logo lime" data-fb="logo" src="${ASSETS.logoLime}" alt="Wise" />
+        <span class="chip">AI Mandate</span>
+      </div>
+      <span class="mock">Demo · mock money</span>
+    </div>`;
+  const bullet = (kind, html) =>
+    kind === 'warn'
+      ? `<div class="bullet"><span class="warn-icon">!</span><p>${html}</p></div>`
+      : `<div class="bullet ${kind === 'neg' ? 'neg' : ''}"><img data-fb="${kind === 'neg' ? 'neg' : 'pos'}" src="${kind === 'neg' ? ASSETS.neg : ASSETS.pos}" width="20" height="20" alt="" /><p>${html}</p></div>`;
+
+  function renderLoading(args) {
+    if (args && args.recipientId) {
+      root.innerHTML = header() + `<div class="skeleton"><span class="pulse"></span> Checking ${esc(fmt(args.amount, args.currency))} to ${esc(args.recipientId)} against your Mandate…</div>`;
+    }
+  }
+
+  const STATUS = {
+    ready: ['ok', 'Allowed'],
+    paid: ['ok', '✓ Sent'],
+    approved: ['ok', '✓ Approved by you'],
+    awaiting_user: ['wait', 'Needs your approval'],
+    declined: ['no', '✕ Declined'],
+    blocked: ['no', '✕ Blocked'],
+  };
+
+  // Stepper: Prepared · Mandate · You · Sent  (0..3)
+  function stepper(s) {
+    const needsYou = s.rule && (s.rule.startsWith('hard_stop') || s.rule === 'limit.per_payment');
+    let at = 1, fail = false;
+    const lab = ['done', 'done', needsYou ? '' : '', ''];
+    if (s.status === 'ready') { at = 1; lab[1] = 'current'; }
+    if (s.status === 'awaiting_user') { at = 2; lab[2] = 'current'; }
+    if (s.status === 'approved') { at = 2; lab[2] = 'done'; lab[3] = 'current'; }
+    if (s.status === 'paid') { at = 3; lab[2] = 'done'; lab[3] = 'current'; }
+    if (s.status === 'blocked') { fail = true; if (needsYou) { at = 2; lab[2] = 'fail'; } else { at = 1; lab[1] = 'fail'; } }
+    if (s.status === 'declined') { fail = true; at = 2; lab[2] = 'fail'; }
+    const pct = (at / 3) * 100;
+    const youLabel = needsYou ? 'You' : 'Auto';
+    return `<div class="stepper">
+      <div class="track">
+        <div class="progress ${fail ? 'fail' : ''}" style="width:${pct}%"></div>
+        ${fail ? `<span class="dot fail" style="left:${pct}%"></span>` : `<img class="dot" data-fb="dot" src="${ASSETS.dot}" width="8" height="8" alt="" style="left:${pct}%" />`}
+      </div>
+      <div class="labels"><span class="${lab[0]}">Prepared</span><span class="${lab[1]}">Mandate</span><span class="${lab[2]}">${youLabel}</span><span class="${lab[3]}">Sent</span></div>
+    </div>`;
+  }
+
+  let pollTimer = null;
+  function render(s, raw) {
+    if (!s) {
+      const t = raw?.content?.find?.((c) => c.type === 'text')?.text;
+      root.innerHTML = header() + `<div class="bullets">${bullet('neg', esc(t || 'No details.'))}</div>`;
+      return;
+    }
+    if (s.kind === 'balances') return renderBalances(s);
+    if (s.kind === 'quote') return renderQuote(s);
+    if (s.kind === 'recipients') return renderRecipients(s);
+    if (s.kind === 'payment') return renderPayment(s);
+  }
+
+  function renderPayment(s) {
+    if (!s.status) {
+      root.innerHTML = header() + `<div class="status no">✕ Not sent</div><div class="bullets">${bullet('neg', esc(s.error))}</div>`;
+      return;
+    }
+    const [cls, label] = STATUS[s.status] || ['wait', s.status];
+    const good = ['ready', 'paid', 'approved'].includes(s.status);
+    const eyebrow = { ready: 'Claude prepared', paid: 'Claude sent', approved: 'You approved', awaiting_user: 'Claude wants to send', declined: 'You declined', blocked: 'Claude tried to send' }[s.status] || 'Payment';
+
+    const bullets = [];
+    if (good && s.status !== 'approved') bullets.push(bullet('pos', esc(s.reason)));
+    else if (s.status === 'approved') bullets.push(bullet('pos', `<strong>You approved this</strong> in the Wise app. ${esc(s.reason)}`));
+    else if (s.status === 'awaiting_user') bullets.push(bullet('warn', esc(s.reason)));
+    else bullets.push(bullet('neg', esc(s.reason)));
+    (s.warnings || []).forEach((w) => bullets.push(bullet('neg', `<strong>Possible prompt injection.</strong> ${esc(w)}`)));
+    if (s.status === 'awaiting_user') bullets.push(bullet('pos', `<strong>Claude can't approve this.</strong> Only you can, in the Wise app.`));
+    if (s.status === 'blocked' || s.status === 'declined') bullets.push(bullet('pos', `<strong>No money moved.</strong> Claude won't retry this payment.`));
+    if (s.status === 'paid' && s.balanceLeft != null) bullets.push(bullet('pos', `<strong>${fmt(s.balanceLeft, s.currency)}</strong> ${esc(s.currency)} balance left.`));
+
+    let action = '';
+    if (s.status === 'awaiting_user') action = `<button class="btn" data-act="open">Review in Wise app</button>${hostCaps.serverTools ? '<div class="foot">This card updates when you decide.</div>' : ''}`;
+    if (s.status === 'approved') action = `<button class="btn" data-act="send" data-id="${esc(s.draftId)}">Tell Claude to send it</button>`;
+
+    const note = s.note ? ' · ' + esc(s.note.slice(0, 48)) + (s.note.length > 48 ? '…' : '') : '';
+    root.innerHTML = header() + `
+      <div class="eyebrow">${eyebrow}</div>
+      <div class="hero">
+        <div>
+          <div class="amount">${fmt(s.amount, s.currency)}<span class="ccy">${esc(s.currency)}</span></div>
+          ${s.amountEUR != null && s.currency !== 'EUR' ? `<div class="sub-eur">≈ ${fmt(s.amountEUR, 'EUR')}</div>` : ''}
+        </div>
+        <span class="status ${cls}">${s.status === 'awaiting_user' && hostCaps.serverTools ? '<span class="pulse"></span>' : ''}${label}</span>
+      </div>
+      <div class="row">${avatar(s.recipient, s.country)}
+        <div class="meta"><b>${esc(s.recipient)}</b><small>${esc(s.ibanMasked || 'New recipient')}${note}</small></div></div>
+      ${stepper(s)}
+      <div class="bullets">${bullets.join('')}</div>
+      <span class="rule">${esc(s.rule)}</span>
+      ${action}`;
+    watch(s);
+  }
+
+  // While a payment waits for the user, watch it so the card updates live when they approve/decline.
+  function watch(s) {
+    clearInterval(pollTimer);
+    if (s.status !== 'awaiting_user' || !hostCaps.serverTools) return;
+    const started = Date.now();
+    pollTimer = setInterval(async () => {
+      if (Date.now() - started > 10 * 60 * 1000) return clearInterval(pollTimer);
+      try {
+        const r = await request('tools/call', { name: 'payment_status', arguments: { draftId: s.draftId } });
+        const next = r?.structuredContent;
+        if (next && next.status !== 'awaiting_user') { clearInterval(pollTimer); renderPayment(next); }
+      } catch { /* host may not allow; ignore */ }
+    }, 2000);
+  }
+
+  function renderBalances(s) {
+    const totalEUR = Object.entries(s.balances).reduce((t, [c, a]) => t + a / (RATES_PER_EUR[c] || 1), 0);
+    root.innerHTML = header() + `<h3 class="title-sub">Your balances</h3>` +
+      Object.entries(s.balances).map(([c, a]) => `<div class="bal"><span class="ccy-row">${ccyDot(c)}${esc(c)}</span><span class="amt">${fmt(a, c)}</span></div>`).join('') +
+      `<div class="total"><span>Total, at mock rates</span><b>≈ ${fmt(Math.round(totalEUR * 100) / 100, 'EUR')}</b></div>`;
+  }
+
+  function renderQuote(s) {
+    const fee = s.fee ? `${num(s.fee, s.feeCurrency)} ${esc(s.feeCurrency)}` : `0 ${esc(s.fromCurrency)}`;
+    root.innerHTML = header() + `<h3 class="title-sub">Quote</h3>
+      <div class="label">Recipient gets</div>
+      <div class="money"><span class="amt">${num(s.recipientGets, s.toCurrency)}</span><span class="ccy-row">${ccyDot(s.toCurrency)}${esc(s.toCurrency)}</span></div>
+      <div class="fee"><span class="left"><img data-fb="minus" src="${ASSETS.minus}" width="24" height="24" alt="minus" />${fee}</span><span class="link">Fee</span></div>
+      <div class="label indent" style="margin-bottom:0">You send</div>
+      <div class="indent" style="font-weight:600">${num(s.amount, s.fromCurrency)} ${esc(s.fromCurrency)}</div>
+      <div class="bullets">${bullet('pos', `<strong>Mid-market rate</strong> 1 ${esc(s.fromCurrency)} = ${esc(s.midMarketRate)} ${esc(s.toCurrency)} (mock)`)}</div>`;
+  }
+
+  function renderRecipients(s) {
+    root.innerHTML = header() + `<h3 class="title-sub">Trusted recipients</h3>` +
+      s.recipients.map((r) => `<div class="row" style="margin-top:12px">${avatar(r.name, r.country)}<div class="meta"><b>${esc(r.name)}</b><small>${esc(r.currency)} · ${esc(r.iban)}</small></div></div>`).join('') +
+      `<div class="bullets">${bullet('pos', `<strong>Only you</strong> can add or change recipients, in the Wise app.`)}</div>`;
+  }
+
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    if (b.dataset.act === 'open') request('ui/open-link', { url: WISE_APP_URL }).catch(() => {});
+    if (b.dataset.act === 'send') {
+      b.disabled = true;
+      b.textContent = 'Asked Claude ✓';
+      request('ui/message', { role: 'user', content: [{ type: 'text', text: `I approved payment ${b.dataset.id} in the Wise app. Please send it now.` }] }).catch(() => {});
+    }
+  });
+})();
+</script>
+</body>
+</html>
