@@ -1,7 +1,7 @@
 {
-  "name": "wise-mcp-mandate",
-  "version": "0.1.0",
-  "description": "Hackathon demo: a Wise-style MCP server where an AI can prepare payments but only the user's Mandate (or the user) can let money move.",
+  "name": "wise-agent-pass",
+  "version": "0.2.0",
+  "description": "Hackathon demo: Wise Agent Pass, a trust layer that extends Wise MCP from read-only to safe agentic payments (View, Draft, Act, approvals, revoke).",
   "type": "module",
   "main": "index.js",
   "scripts": {
