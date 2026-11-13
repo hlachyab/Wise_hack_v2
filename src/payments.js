@@ -2,17 +2,26 @@
 // call these, so the rules are applied in exactly one place.
 //
 // Draft lifecycle:
-//   prepare  ->  ready ─────────────────────────────┐
-//            ->  awaiting_user -> approved (user) ───┼─> confirm -> paid
-//                              -> declined (user)    │
-//            ->  blocked                             │
-//   (confirm re-checks the Mandate and can still turn a draft into "blocked")
+//   prepare ─┬─> ready ──────── confirm_payment (Claude) ──┐
+//            ├─> awaiting_user ─┬─ Approve (user) ─────────┴─> paid
+//            │                  └─ Decline (user) ─> declined
+//            └─> blocked
+//   confirm_payment re-checks the pass at send time, so a "ready" draft can still move to
+//   awaiting_user or blocked if the user changed their pass in the meantime.
 
 import { randomUUID } from 'node:crypto';
-import { state, addActivity, resetState } from './state.js';
-import { decide, injectionWarnings, REVOKED, STATUS_FOR } from './rules.js';
+import { state, addActivity, resetState, READ_LEVELS, TRANSFER_LEVELS } from './state.js';
+import { decide, injectionWarnings, STATUS_FOR } from './rules.js';
 import { FEE_FIXED_EUR, FEE_PERCENT, RATES_PER_EUR, fmt, maskIban, normIban, round2, toEUR } from './money.js';
 import { log } from './log.js';
+
+/** Error with an HTTP status. The user actions throw it and web.js turns it into a response. */
+export class ActionError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Claude's side
@@ -39,9 +48,9 @@ export function getQuote({ amount, fromCurrency, toCurrency }) {
   };
 }
 
-const PREPARED_TEXT = { allow: 'ready to send', needs_approval: 'waiting for your approval', block: 'blocked' };
+const PREPARED_TEXT = { allow: 'ready to send', needs_approval: 'waiting for you', block: 'blocked' };
 
-/** Create a draft and check it against the Mandate. Never moves money. */
+/** Create a draft and check it against the Agent Pass. Never moves money. */
 export function preparePayment({ recipientId, amount, currency, iban, note }) {
   const id = String(recipientId).trim().toLowerCase();
   const saved = state.recipients[id];
@@ -75,76 +84,62 @@ export function preparePayment({ recipientId, amount, currency, iban, note }) {
   return draft;
 }
 
-const NOT_SENDABLE = {
-  awaiting_user: 'It is waiting for the user to approve it in the Wise app. You cannot approve it. Ask the user to review it there.',
-  declined: 'The user declined it in the Wise app. Do not retry it.',
-};
-
-/**
- * The Mandate may have changed since the draft was prepared, so check again at send time.
- * Returns null if the draft may still be sent, otherwise { rule, reason }.
- */
-function recheckAtSendTime(d) {
-  const m = state.mandate;
-  if (m.revoked) return REVOKED;
-  if (d.status === 'ready') {
-    const r = decide(d);
-    return r.decision === 'allow' ? null : r;
-  }
-  // User-approved drafts skip the hard stops and the per-payment limit,
-  // but the monthly cap still applies.
-  if (d.amountEUR != null && m.spentThisMonthEUR + d.amountEUR > m.monthlyLimitEUR) {
-    return { rule: 'limit.monthly', reason: `This would go over your ${fmt(m.monthlyLimitEUR, 'EUR')} monthly AI limit.` };
-  }
-  return null;
-}
-
-/** Send a draft. Returns { ok: true, draft } or { ok: false, error, draft? }. */
-export function confirmPayment(draftId) {
-  const d = state.drafts[draftId];
-  if (!d) return { ok: false, error: `No payment draft with id ${draftId}.` };
-  if (d.status === 'paid') return { ok: false, error: 'This payment was already sent.', draft: d };
-  if (d.status === 'blocked') return { ok: false, error: `Payment not sent. It was blocked by the Mandate: ${d.reason} Do not retry it.`, draft: d };
-  if (d.status !== 'ready' && d.status !== 'approved') return { ok: false, error: `Payment not sent. ${NOT_SENDABLE[d.status]}`, draft: d };
-
-  const blocked = recheckAtSendTime(d);
-  if (blocked) {
-    Object.assign(d, { status: 'blocked', decision: 'block', rule: blocked.rule, reason: blocked.reason });
-    addActivity({ kind: 'blocked', draftId: d.id, decision: 'block', rule: blocked.rule, text: `Blocked ${fmt(d.amount, d.currency)} to ${d.recipientName} at send time. ${blocked.reason}` });
-    return { ok: false, error: `Payment not sent. ${blocked.reason} Do not retry it.`, draft: d };
-  }
-
+/** Move the money (mock). Used by Claude's confirm and by the user's Approve. */
+function send(d, byUser) {
   const balance = state.balances[d.currency] ?? 0;
-  if (balance < d.amount) {
-    return { ok: false, error: `Not enough ${d.currency} balance (${fmt(balance, d.currency)} available).`, draft: d };
-  }
-
+  if (balance < d.amount) return `Not enough ${d.currency} balance (${fmt(balance, d.currency)} available).`;
   state.balances[d.currency] = d.currency === 'JPY' ? balance - d.amount : round2(balance - d.amount);
-  if (d.amountEUR != null) state.mandate.spentThisMonthEUR = round2(state.mandate.spentThisMonthEUR + d.amountEUR);
+  if (d.amountEUR != null) state.pass.spentThisMonthEUR = round2(state.pass.spentThisMonthEUR + d.amountEUR);
   d.status = 'paid';
   d.paidAt = new Date().toISOString();
+  d.sentByUser = byUser;
   addActivity({
     kind: 'paid',
     draftId: d.id,
     decision: 'paid',
     rule: d.rule,
-    text: `Sent ${fmt(d.amount, d.currency)} to ${d.recipientName}. ${d.approvedByUser ? 'You approved it in the Wise app.' : d.reason}`,
+    text: `Sent ${fmt(d.amount, d.currency)} to ${d.recipientName}. ${byUser ? 'You approved it in the Wise app.' : d.reason}`,
   });
-  log(`paid ${d.id}`);
-  return { ok: true, draft: d };
+  log(`paid ${d.id}${byUser ? ' (approved by user)' : ''}`);
+  return null;
+}
+
+/**
+ * Claude sends a "ready" draft. Returns { ok: true, draft, already? } or { ok: false, error, draft? }.
+ * The pass may have changed since the draft was prepared, so it is checked again first.
+ */
+export function confirmPayment(draftId) {
+  const d = state.drafts[draftId];
+  if (!d) return { ok: false, error: `No payment draft with id ${draftId}.` };
+
+  switch (d.status) {
+    case 'paid':
+      return { ok: true, already: true, draft: d };
+    case 'awaiting_user':
+      return { ok: false, draft: d, error: 'Payment not sent. It is waiting for the user, who can approve and send it with one tap in the Wise app. You cannot approve it.' };
+    case 'declined':
+      return { ok: false, draft: d, error: 'Payment not sent. The user declined it in the Wise app. Do not retry it.' };
+    case 'blocked':
+      return { ok: false, draft: d, error: `Payment not sent. It was blocked by the Agent Pass: ${d.reason} Do not retry it.` };
+  }
+
+  const now = decide(d);
+  if (now.decision !== 'allow') {
+    Object.assign(d, { status: STATUS_FOR[now.decision], decision: now.decision, rule: now.rule, reason: now.reason });
+    const kind = now.decision === 'block' ? 'blocked' : 'prepared';
+    addActivity({ kind, draftId: d.id, decision: now.decision, rule: now.rule, text: `Checked ${fmt(d.amount, d.currency)} to ${d.recipientName} again at send time. ${now.reason}` });
+    return now.decision === 'block'
+      ? { ok: false, draft: d, error: `Payment not sent. ${now.reason} Do not retry it.` }
+      : { ok: false, draft: d, error: `Payment not sent yet. ${now.reason} The user can approve it in the Wise app.` };
+  }
+
+  const error = send(d, false);
+  return error ? { ok: false, error, draft: d } : { ok: true, draft: d };
 }
 
 // ---------------------------------------------------------------------------
 // The user's side (web app only, never reachable from an MCP tool)
 // ---------------------------------------------------------------------------
-
-/** Error with an HTTP status, thrown by the user actions and turned into a response by web.js. */
-export class ActionError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-  }
-}
 
 function awaitingDraft(id) {
   const d = state.drafts[id];
@@ -153,12 +148,12 @@ function awaitingDraft(id) {
   return d;
 }
 
+/** Approve = send. The user's own decision, so the pass limits don't apply. */
 export function approveDraft(id) {
   const d = awaitingDraft(id);
-  if (state.mandate.revoked) throw new ActionError(409, 'AI access is revoked. Restore it first.');
-  d.status = 'approved';
-  d.approvedByUser = true;
-  addActivity({ kind: 'approved', draftId: d.id, decision: 'approved', rule: d.rule, text: `You approved ${fmt(d.amount, d.currency)} to ${d.recipientName}. Claude can now send it.` });
+  if (state.pass.revoked) throw new ActionError(409, "Claude's access is revoked. Restore it first.");
+  const error = send(d, true); // logs "Sent … You approved it in the Wise app."
+  if (error) throw new ActionError(409, error);
 }
 
 export function declineDraft(id) {
@@ -167,14 +162,48 @@ export function declineDraft(id) {
   addActivity({ kind: 'declined', draftId: d.id, decision: 'declined', rule: d.rule, text: `You declined ${fmt(d.amount, d.currency)} to ${d.recipientName}. Claude cannot send it.` });
 }
 
-export function revokeMandate() {
-  state.mandate.revoked = true;
-  addActivity({ kind: 'revoked', decision: 'block', rule: 'mandate.revoked', text: "You revoked Claude's access. Every new AI payment will be blocked." });
+const LEVEL_NAMES = { none: 'None', view: 'View', draft: 'Draft', act: 'Act' };
+
+/** Save the consent screen: permission levels and limits. */
+export function updatePass({ permissions = {}, perPaymentLimitEUR, monthlyLimitEUR }) {
+  const p = state.pass;
+  const next = { ...p.permissions };
+  for (const key of ['balances', 'recipients']) {
+    if (permissions[key] === undefined) continue;
+    if (!READ_LEVELS.includes(permissions[key])) throw new ActionError(400, `${key} must be one of ${READ_LEVELS.join(', ')}`);
+    next[key] = permissions[key];
+  }
+  if (permissions.transfers !== undefined) {
+    if (!TRANSFER_LEVELS.includes(permissions.transfers)) throw new ActionError(400, `transfers must be one of ${TRANSFER_LEVELS.join(', ')}`);
+    next.transfers = permissions.transfers;
+  }
+  const limit = (v, name) => {
+    if (v === undefined) return undefined;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0 || n > 100000) throw new ActionError(400, `${name} must be a positive amount`);
+    return round2(n);
+  };
+  const per = limit(perPaymentLimitEUR, 'perPaymentLimitEUR') ?? p.perPaymentLimitEUR;
+  const month = limit(monthlyLimitEUR, 'monthlyLimitEUR') ?? p.monthlyLimitEUR;
+
+  Object.assign(p, { permissions: next, perPaymentLimitEUR: per, monthlyLimitEUR: month });
+  const limits = next.transfers === 'act' ? `, up to ${fmt(per, 'EUR')} per payment and ${fmt(month, 'EUR')} per month` : '';
+  addActivity({
+    kind: 'pass',
+    decision: 'pass',
+    rule: `pass.${next.transfers}`,
+    text: `You updated Claude's Agent Pass. Transfers: ${LEVEL_NAMES[next.transfers]}${limits}.`,
+  });
 }
 
-export function restoreMandate() {
-  state.mandate.revoked = false;
-  addActivity({ kind: 'restored', decision: 'allow', rule: 'mandate.restored', text: "You restored Claude's access under your Mandate." });
+export function revokeAccess() {
+  state.pass.revoked = true;
+  addActivity({ kind: 'revoked', decision: 'block', rule: 'pass.revoked', text: "You revoked Claude's access. Claude can't see or do anything in your Wise account." });
+}
+
+export function restoreAccess() {
+  state.pass.revoked = false;
+  addActivity({ kind: 'restored', decision: 'allow', rule: 'pass.restored', text: "You restored Claude's access under your Agent Pass." });
 }
 
 export function resetDemo() {

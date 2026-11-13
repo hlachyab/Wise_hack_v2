@@ -12,19 +12,32 @@ import { ROOT } from './paths.js';
 const STATE_FILE = process.env.WISE_STATE_FILE || path.join(ROOT, '.wise-state.json');
 const MAX_ACTIVITY = 100;
 
+/** Bump this when the shape of the state changes, so an old state file is replaced on load. */
+const STATE_VERSION = 2;
+
+/** Agent Pass levels, from least to most power. */
+export const READ_LEVELS = ['none', 'view'];
+export const TRANSFER_LEVELS = ['none', 'view', 'draft', 'act'];
+
 export function createInitialState() {
   return {
+    version: STATE_VERSION,
     balances: { EUR: 2400, GBP: 300, JPY: 120000 },
     recipients: {
-      maria: { id: 'maria', name: 'Maria Tamm', currency: 'EUR', iban: 'EE38 2200 2210 2014 5685' },
-      hikari: { id: 'hikari', name: 'Hikari Print Co.', currency: 'JPY', iban: 'JP12 0001 1111 2222' },
+      elisa: { id: 'elisa', name: 'Elisa', currency: 'EUR', iban: 'EE47 1000 0010 2014 5685', note: 'Home internet' },
+      jana: { id: 'jana', name: 'Jana Michiels', currency: 'EUR', iban: 'BE71 0961 2345 6769', note: 'Family' },
+      hikari: { id: 'hikari', name: 'Hikari Print Co.', currency: 'JPY', iban: 'JP12 0001 1111 2222', note: 'Supplier' },
     },
-    mandate: {
+    // The Wise Agent Pass: what the user lets Claude do, set on the consent screen.
+    pass: {
+      revoked: false,
+      // Like Wise's consent screen: None or View for reading, plus Draft and Act for transfers.
+      // A fresh demo starts read-only, so "the wall" can be shown before switching to Act.
+      permissions: { balances: 'view', recipients: 'view', transfers: 'view' },
       perPaymentLimitEUR: 200,
-      monthlyLimitEUR: 1000,
+      monthlyLimitEUR: 500,
       allowedCurrencies: ['EUR', 'GBP', 'JPY'],
       spentThisMonthEUR: 0,
-      revoked: false,
     },
     drafts: {},
     activity: [],
@@ -37,6 +50,7 @@ export let state;
 export function load() {
   try {
     state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+    if (state.version !== STATE_VERSION) throw new Error('old state file');
   } catch {
     state = createInitialState();
     save();

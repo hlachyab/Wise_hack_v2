@@ -1,12 +1,13 @@
 // The "Wise app" web page (the user's side) and its small JSON API.
-// This is the only place where payments can be approved or declined, or AI access revoked.
+// This is the only place where payments can be approved or declined, the Agent Pass changed,
+// or Claude's access revoked.
 
 import express from 'express';
 import path from 'node:path';
 import { ROOT } from './paths.js';
 import { load, save, state } from './state.js';
 import { ibanCountry, maskIban } from './money.js';
-import { ActionError, approveDraft, declineDraft, resetDemo, restoreMandate, revokeMandate } from './payments.js';
+import { ActionError, approveDraft, declineDraft, resetDemo, restoreAccess, revokeAccess, updatePass } from './payments.js';
 import { log } from './log.js';
 
 const HOST = '127.0.0.1'; // local only
@@ -17,7 +18,7 @@ function publicState() {
   return {
     balances: state.balances,
     recipients: Object.values(state.recipients).map((r) => ({ ...r, iban: maskIban(r.iban), country: ibanCountry(r.iban) })),
-    mandate: state.mandate,
+    pass: state.pass,
     drafts: Object.values(state.drafts).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     activity: state.activity,
   };
@@ -39,6 +40,7 @@ const action = (fn) => (req, res) => {
 export function createWebApp() {
   const app = express();
   app.use(express.static(path.join(ROOT, 'public')));
+  app.use(express.json());
 
   app.get('/api/state', (_req, res) => {
     load();
@@ -46,8 +48,9 @@ export function createWebApp() {
   });
   app.post('/api/drafts/:id/approve', action((req) => approveDraft(req.params.id)));
   app.post('/api/drafts/:id/decline', action((req) => declineDraft(req.params.id)));
-  app.post('/api/revoke', action(revokeMandate));
-  app.post('/api/restore', action(restoreMandate));
+  app.post('/api/pass', action((req) => updatePass(req.body || {})));
+  app.post('/api/revoke', action(revokeAccess));
+  app.post('/api/restore', action(restoreAccess));
   app.post('/api/reset', action(resetDemo));
 
   return app;

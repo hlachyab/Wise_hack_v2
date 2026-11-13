@@ -1,5 +1,8 @@
-// The Mandate rules engine. Order matters; the first matching rule wins.
+// The Agent Pass rules engine. Order matters; the first matching rule wins.
 // decide() returns { decision, rule, reason }, where decision is "allow" | "needs_approval" | "block".
+//
+// The idea: within the user's limits Claude can act on its own; anything outside them asks the
+// user; only a few hard settings (revoked, read-only, currency) block outright.
 
 import { state } from './state.js';
 import { fmt, maskIban, normIban, toEUR } from './money.js';
@@ -7,25 +10,39 @@ import { fmt, maskIban, normIban, toEUR } from './money.js';
 /** Draft status for each decision. */
 export const STATUS_FOR = { allow: 'ready', needs_approval: 'awaiting_user', block: 'blocked' };
 
-export const REVOKED = { decision: 'block', rule: 'mandate.revoked', reason: 'Your Wise Mandate was revoked.' };
+export const REVOKED = {
+  decision: 'block',
+  rule: 'pass.revoked',
+  reason: "You revoked Claude's access to your Wise account.",
+};
+
+const READ_ONLY = {
+  decision: 'block',
+  rule: 'pass.transfers_read_only',
+  reason: "Your Agent Pass lets Claude view transfers only, so it can't prepare or send money. You can change Transfers to Draft or Act in the Wise app.",
+};
 
 export function decide({ recipientId, amount, currency, iban }) {
-  const m = state.mandate;
+  const p = state.pass;
   const r = state.recipients[recipientId];
 
-  // 1. Revoked
-  if (m.revoked) return REVOKED;
+  // 1. Access revoked
+  if (p.revoked) return REVOKED;
 
-  // 2. Unknown recipient
+  // 2. Transfers are None or View (read-only)
+  const level = p.permissions.transfers;
+  if (level !== 'draft' && level !== 'act') return READ_ONLY;
+
+  // 3. Unknown recipient
   if (!r) {
     return {
       decision: 'needs_approval',
       rule: 'hard_stop.new_recipient',
-      reason: `"${recipientId}" is not one of your trusted recipients, so you need to approve this yourself.`,
+      reason: `"${recipientId}" is not one of your saved recipients, so you need to approve this yourself.`,
     };
   }
 
-  // 3. Bank details differ from the saved ones
+  // 4. Bank details differ from the saved ones
   if (iban && normIban(iban) !== normIban(r.iban)) {
     return {
       decision: 'needs_approval',
@@ -34,42 +51,51 @@ export function decide({ recipientId, amount, currency, iban }) {
     };
   }
 
-  // 4. Currency not allowed
-  if (!m.allowedCurrencies.includes(currency)) {
+  // 5. Currency not allowed
+  if (!p.allowedCurrencies.includes(currency)) {
     return {
       decision: 'block',
       rule: 'currency.not_allowed',
-      reason: `Your Mandate doesn't allow payments in ${currency}. Allowed: ${m.allowedCurrencies.join(', ')}.`,
+      reason: `Your Agent Pass doesn't allow payments in ${currency}. Allowed: ${p.allowedCurrencies.join(', ')}.`,
     };
   }
 
   const eur = toEUR(amount, currency);
   const eurNote = currency === 'EUR' ? '' : ` (about ${fmt(eur, 'EUR')})`;
 
-  // 5. Per-payment limit
-  if (eur > m.perPaymentLimitEUR) {
+  // 6. Per-payment limit
+  if (eur > p.perPaymentLimitEUR) {
     return {
       decision: 'needs_approval',
       rule: 'limit.per_payment',
-      reason: `${fmt(amount, currency)}${eurNote} is over your ${fmt(m.perPaymentLimitEUR, 'EUR')} per-payment limit, so you need to approve it.`,
+      reason: `${fmt(amount, currency)}${eurNote} is above your ${fmt(p.perPaymentLimitEUR, 'EUR')} limit per payment, so you need to approve it.`,
     };
   }
 
-  // 6. Monthly limit
-  if (m.spentThisMonthEUR + eur > m.monthlyLimitEUR) {
-    const left = Math.max(0, m.monthlyLimitEUR - m.spentThisMonthEUR);
+  // 7. Monthly limit
+  if (p.spentThisMonthEUR + eur > p.monthlyLimitEUR) {
+    const left = Math.max(0, p.monthlyLimitEUR - p.spentThisMonthEUR);
     return {
-      decision: 'block',
+      decision: 'needs_approval',
       rule: 'limit.monthly',
-      reason: `This would go over your ${fmt(m.monthlyLimitEUR, 'EUR')} monthly AI limit. Only ${fmt(left, 'EUR')} is left this month.`,
+      reason: `This would go over your ${fmt(p.monthlyLimitEUR, 'EUR')} monthly limit (${fmt(left, 'EUR')} left this month), so you need to approve it.`,
     };
   }
 
-  // 7. Allow
+  // 8. Within the rules, but the pass is Draft: Claude prepares, the user sends
+  if (level === 'draft') {
+    return {
+      decision: 'needs_approval',
+      rule: 'pass.draft',
+      reason: `Ready to go. Your Agent Pass is set to Draft, so you send it yourself with one tap in the Wise app.`,
+    };
+  }
+
+  // 9. Allow
   return {
     decision: 'allow',
-    rule: 'trusted_recipient_under_limit',
-    reason: `Allowed because ${r.name} is trusted and ${fmt(amount, currency)}${eurNote} is under your ${fmt(m.perPaymentLimitEUR, 'EUR')} limit.`,
+    rule: 'within_pass',
+    reason: `Allowed because ${r.name} is a saved recipient and ${fmt(amount, currency)}${eurNote} is within your ${fmt(p.perPaymentLimitEUR, 'EUR')} limit.`,
   };
 }
 

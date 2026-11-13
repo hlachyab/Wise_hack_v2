@@ -1,4 +1,4 @@
-// Wise MCP, "AI Mandate" hackathon demo. Entry point.
+// Wise Agent Pass hackathon demo. Entry point.
 //
 // One process runs two things that share the same state:
 //   1. the MCP server over stdio, for Claude Desktop  (src/mcp.js)
