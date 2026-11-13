@@ -62,15 +62,17 @@ npm install
 npm test        # optional: runs the full scenario test, should end with ALL PASSED
 ```
 
-You don't normally run the server yourself: Claude Desktop starts it (next section). To try the web page without Claude:
+**Just the website, no Claude needed:**
 
 ```bash
-npm start
-# stderr: [wise-mcp] Wise app running at http://localhost:4000
-# open http://localhost:4000, then Ctrl+C to stop
+npm run web
+# [wise-mcp] web-only mode: no MCP server. Press Ctrl+C to stop.
+# [wise-mcp] Wise app running at http://localhost:4000
 ```
 
-`npm start` shows no prompt because the process is waiting for MCP messages on stdin. **Stop it before you start Claude Desktop**, so Desktop's copy can take port 4000.
+Open <http://localhost:4000>. It keeps running until you press Ctrl+C. You can leave it running while Claude Desktop is open: both share the same data file, so approvals and payments show up on both sides.
+
+**With Claude:** you don't start anything yourself. Claude Desktop starts the server (MCP and website together) when it opens; see the next section.
 
 ## Connect to Claude Desktop
 
@@ -275,6 +277,8 @@ Restarting Claude Desktop does **not** reset the demo, because state is kept in 
 
 ## Troubleshooting
 
+- **The page shows "The server on port 4000 is an older version".** Claude Desktop is still running a copy of the server from before an update. Fully quit Claude Desktop (Cmd+Q), reopen it, and reload the page.
+- **The page says it can't reach the server.** Nothing is running on port 4000. Run `npm run web`, or open Claude Desktop.
 - **Tools don't appear.** Check the JSON is valid and the paths are absolute, then fully quit Claude Desktop (Cmd+Q) and reopen it. Check the log file above.
 - **Claude says it can't send money.** That's the wall: Transfers is on View. Change it to Act on the consent screen.
 - **No card in the chat, only text.** Your Claude Desktop version may not support MCP Apps yet. Everything still works, just without the card.

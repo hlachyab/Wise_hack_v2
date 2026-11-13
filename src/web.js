@@ -16,6 +16,7 @@ const RETRY_MS = 2000;
 /** What the web page sees. IBANs are masked. */
 function publicState() {
   return {
+    version: state.version, // the page checks this to spot an outdated server
     balances: state.balances,
     recipients: Object.values(state.recipients).map((r) => ({ ...r, iban: maskIban(r.iban), country: ibanCountry(r.iban) })),
     pass: state.pass,

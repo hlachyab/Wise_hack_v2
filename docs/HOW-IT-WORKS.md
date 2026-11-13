@@ -258,7 +258,7 @@ The protections are layered, and each layer works even if the one above it fails
 - **Approval cards** say **Approve and send**, or just **Send** when the payment waits only because the pass is Draft.
 - **Buttons** carry `data-act="approve|decline|consent|revoke|restore"`. One click handler maps them to actions, then polls straight away so the page updates instantly.
 - **All text is escaped** with `esc()` before it goes into HTML, because notes come from invoices and could contain markup.
-- If the server can't be reached, a red banner says so.
+- If the server can't be reached, a red banner says so. If it answers with a different data `version` (an older copy still running), a banner says to restart Claude Desktop instead of drawing a broken page.
 
 ## 11. File by file
 
@@ -266,7 +266,7 @@ The protections are layered, and each layer works even if the one above it fails
 
 | File | What's inside |
 |---|---|
-| `index.js` | Entry point. Starts the web server and the MCP server over stdio. Exits when stdin closes or on SIGTERM/SIGINT. Logs uncaught errors instead of crashing. |
+| `index.js` | Entry point. Starts the web server and the MCP server over stdio (`--web` starts only the web server, for `npm run web`). Exits when stdin closes or on SIGTERM/SIGINT. Logs uncaught errors instead of crashing. |
 | `src/mcp.js` | `createMcpServer()`. Server instructions for Claude, the 7 tools with their zod input schemas and descriptions, `readBlocked()` for read permissions, and the `text()`/`view()`/`denied()` result helpers. The `tool()` helper adds the card `_meta` and the `tx()` wrapper to every tool. |
 | `src/card.js` | The MCP Apps resource: URI, MIME type, UI metadata, asset embedding, and `cardFor(draft)`. |
 | `src/web.js` | `createWebApp()` serves `public/` and the JSON API. `action()` wraps each POST (load, run, save, reply, and turn an `ActionError` into a 400/404/409). `startWebServer()` handles the busy-port retry. |

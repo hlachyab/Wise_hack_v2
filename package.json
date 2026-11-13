@@ -6,6 +6,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "web": "node index.js --web",
     "test": "node test/e2e.mjs"
   },
   "engines": {

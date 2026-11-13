@@ -13,7 +13,7 @@ const STATE_FILE = process.env.WISE_STATE_FILE || path.join(ROOT, '.wise-state.j
 const MAX_ACTIVITY = 100;
 
 /** Bump this when the shape of the state changes, so an old state file is replaced on load. */
-const STATE_VERSION = 3;
+const STATE_VERSION = 3; // keep API_VERSION in public/app.js the same
 
 /** Agent Pass levels, from least to most power. */
 export const READ_LEVELS = ['none', 'view'];

@@ -269,18 +269,27 @@ function render(s) {
 
 let lastKey = '';
 
+const API_VERSION = 3; // must match STATE_VERSION in src/state.js
+
 async function poll() {
+  let s;
   try {
-    const s = await (await fetch('/api/state', { cache: 'no-store' })).json();
+    s = await (await fetch('/api/state', { cache: 'no-store' })).json();
     $('offline').style.display = 'none';
-    // Re-render when the state changes, and at least every 10s so "time ago" stays fresh.
-    const key = JSON.stringify(s) + Math.floor(Date.now() / 10000);
-    if (key !== lastKey) {
-      lastKey = key;
-      render(s);
-    }
   } catch {
     $('offline').style.display = 'block';
+    return;
+  }
+  // An older server (e.g. a Claude Desktop copy started before an update) sends a different
+  // shape. Say so clearly instead of rendering a broken page.
+  const outdated = s.version !== API_VERSION;
+  $('outdated').style.display = outdated ? 'block' : 'none';
+  if (outdated) return;
+  // Re-render when the state changes, and at least every 10s so "time ago" stays fresh.
+  const key = JSON.stringify(s) + Math.floor(Date.now() / 10000);
+  if (key !== lastKey) {
+    lastKey = key;
+    render(s);
   }
 }
 
