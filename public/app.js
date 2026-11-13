@@ -1,5 +1,5 @@
 // The "Wise app" page. Polls /api/state every second and re-renders the four sections.
-// Buttons call the user-only API (approve, decline, revoke, restore, reset).
+// Buttons call the user-only API (approve, decline, change the pass, revoke, restore, reset).
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -57,13 +57,14 @@ function renderApprovals(drafts) {
 }
 
 function approvalCard(d, isNew) {
+  const draftOnly = d.rule === 'pass.draft'; // within the rules; waiting only because the pass is Draft
   const eur = d.amountEUR != null && d.currency !== 'EUR' ? `<span class="eur">≈ ${fmt(d.amountEUR, 'EUR')}</span>` : '';
   return `
     <div class="approval ${isNew ? 'new' : ''}">
-      <span class="eyebrow">Claude is asking</span>
+      <span class="eyebrow">${draftOnly ? 'Ready for you to send' : 'Claude is asking'}</span>
       <div class="tx" style="padding:0 0 12px">
         ${avatar(d.recipientName, d.iban ? d.iban.slice(0, 2) : '')}
-        <div class="meta"><b>Claude wants to pay ${esc(d.recipientName)}</b><small>${d.ibanMasked ? 'To account ' + esc(d.ibanMasked) : 'New recipient'}</small></div>
+        <div class="meta"><b>${draftOnly ? 'Claude prepared a payment to' : 'Claude wants to pay'} ${esc(d.recipientName)}</b><small>${d.ibanMasked ? 'To account ' + esc(d.ibanMasked) : 'New recipient'}</small></div>
       </div>
       <div class="label">Recipient gets</div>
       <div class="money"><span class="amt">${num(d.amount, d.currency)}</span>
@@ -74,7 +75,7 @@ function approvalCard(d, isNew) {
       <span class="rule">${esc(d.rule)}</span>
       <div class="btn-row">
         <button class="btn btn-secondary" data-act="decline" data-id="${esc(d.id)}">Decline</button>
-        <button class="btn btn-primary" data-act="approve" data-id="${esc(d.id)}">Approve</button>
+        <button class="btn btn-primary" data-act="approve" data-id="${esc(d.id)}">${draftOnly ? 'Send' : 'Approve and send'}</button>
       </div>
     </div>`;
 }
@@ -91,40 +92,116 @@ function renderBalances(balances) {
   prevBalances = balances;
 }
 
-function renderMandate(m, recipients) {
+// What each Agent Pass level means, shown on the consent screen and in the access panel.
+const LEVELS = {
+  none: { name: 'None', help: "Claude can't see this." },
+  view: { name: 'View', help: 'Claude can see this, but not change anything.' },
+  draft: { name: 'Draft', help: 'Claude prepares transfers. You send each one with one tap in the Wise app.' },
+  act: { name: 'Act', help: 'Claude sends money within your limits. Anything else waits for your approval.' },
+};
+const TRANSFER_HELP = {
+  none: "Claude can't see your transfers.",
+  view: "Claude can see your transfers, but can't prepare or send money.",
+  draft: LEVELS.draft.help,
+  act: LEVELS.act.help,
+};
+
+let lastPass = null; // the consent screen opens with the current settings
+
+function renderPass(p, recipients) {
+  lastPass = p;
+  const t = p.permissions.transfers;
   const setChip = (el, on, onText, offText) => {
     el.textContent = on ? onText : offText;
     el.className = 'chip' + (on ? '' : ' off');
   };
-  setChip($('mandate-badge'), !m.revoked, 'Active', 'Revoked');
-  setChip($('conn'), !m.revoked, 'AI Mandate', 'AI access off');
+  setChip($('pass-badge'), !p.revoked, 'Active', 'Revoked');
+  setChip($('conn'), !p.revoked, `Agent Pass · ${LEVELS[t].name}`, 'Claude access off');
 
-  const pct = Math.min(100, (m.spentThisMonthEUR / m.monthlyLimitEUR) * 100);
-  const left = Math.max(0, m.monthlyLimitEUR - m.spentThisMonthEUR);
-  $('mandate').innerHTML = `
+  const level = (v) => `<span class="level ${v === 'none' || p.revoked ? 'off' : ''}">${p.revoked ? 'None' : LEVELS[v].name}</span>`;
+  const pct = Math.min(100, (p.spentThisMonthEUR / p.monthlyLimitEUR) * 100);
+  const left = Math.max(0, p.monthlyLimitEUR - p.spentThisMonthEUR);
+  $('pass').innerHTML = `
+    <div class="perm-rows">
+      <div class="perm-row"><span>Balances</span>${level(p.permissions.balances)}</div>
+      <div class="perm-row"><span>Recipients</span>${level(p.permissions.recipients)}</div>
+      <div class="perm-row"><span>Transfers<small>${esc(p.revoked ? "Claude can't see or do anything." : TRANSFER_HELP[t])}</small></span>${level(t)}</div>
+    </div>
     <div class="limits">
-      <div class="limit"><small>Per payment</small><b>${fmt(m.perPaymentLimitEUR, 'EUR')}</b></div>
-      <div class="limit"><small>Per month</small><b>${fmt(m.monthlyLimitEUR, 'EUR')}</b></div>
+      <div class="limit"><small>Per payment</small><b>${fmt(p.perPaymentLimitEUR, 'EUR')}</b></div>
+      <div class="limit"><small>Per month</small><b>${fmt(p.monthlyLimitEUR, 'EUR')}</b></div>
     </div>
     <div class="spend">
-      <div class="bar-label"><span>${fmt(m.spentThisMonthEUR, 'EUR')} spent this month</span><span>${fmt(left, 'EUR')} left</span></div>
+      <div class="bar-label"><span>${fmt(p.spentThisMonthEUR, 'EUR')} sent this month</span><span>${fmt(left, 'EUR')} left</span></div>
       <div class="bar"><div style="width:${pct}%"></div></div>
     </div>
-    <div class="group-title">Trusted recipients</div>
+    <div class="group-title">Saved recipients</div>
     ${recipients.map((r) => `
       <div class="tx">
         ${avatar(r.name, r.country)}
-        <div class="meta"><b>${esc(r.name)}</b><small>${esc(r.currency)} · ${esc(r.iban)}</small></div>
+        <div class="meta"><b>${esc(r.name)}</b><small>${r.note ? esc(r.note) + ' · ' : ''}${esc(r.currency)} · ${esc(r.iban)}</small></div>
       </div>`).join('')}
     <div class="group-title">Allowed currencies</div>
-    <div class="chips">${m.allowedCurrencies.map((c) => `<span class="chip-outline selected">${esc(c)}</span>`).join('')}</div>
-    ${m.revoked ? `<div class="revoked-banner">Claude's access is revoked. Every new AI payment is blocked.</div>` : ''}
-    <div class="mandate-actions">
-      ${m.revoked
-        ? `<button class="btn btn-primary" data-act="restore">Restore AI access</button>`
-        : `<button class="btn btn-danger" data-act="revoke">Revoke AI access</button>`}
+    <div class="chips">${p.allowedCurrencies.map((c) => `<span class="chip-outline selected">${esc(c)}</span>`).join('')}</div>
+    ${p.revoked ? `<div class="revoked-banner">Claude's access is revoked. It can't see your account or move money.</div>` : ''}
+    <div class="pass-actions">
+      ${p.revoked
+        ? `<button class="btn btn-primary" data-act="restore">Restore access</button>`
+        : `<button class="btn btn-secondary" data-act="consent">Change permissions</button>
+           <button class="btn btn-danger" data-act="revoke">Revoke access</button>`}
     </div>`;
 }
+
+// ---------------------------------------------------------------------------
+// Consent screen
+// ---------------------------------------------------------------------------
+
+const consent = $('consent');
+const form = $('consent-form');
+const PERM_OPTIONS = { balances: ['none', 'view'], recipients: ['none', 'view'], transfers: ['none', 'view', 'draft', 'act'] };
+const NEW_LEVELS = new Set(['draft', 'act']); // the levels this project adds to Wise's None / View
+
+function openConsent() {
+  if (!lastPass) return;
+  for (const [perm, options] of Object.entries(PERM_OPTIONS)) {
+    form.querySelector(`[data-perm="${perm}"]`).innerHTML = options.map((v) => `
+      <label><input type="radio" name="${perm}" value="${v}" ${lastPass.permissions[perm] === v ? 'checked' : ''} />
+        <span>${LEVELS[v].name}${NEW_LEVELS.has(v) ? '<em class="new">NEW</em>' : ''}</span></label>`).join('');
+  }
+  form.perPaymentLimitEUR.value = lastPass.perPaymentLimitEUR;
+  form.monthlyLimitEUR.value = lastPass.monthlyLimitEUR;
+  $('consent-error').textContent = '';
+  syncConsent();
+  consent.showModal();
+}
+
+/** Show the help text for the chosen transfer level, and the limits for Draft and Act. */
+function syncConsent() {
+  const t = form.transfers.value;
+  $('transfers-help').textContent = TRANSFER_HELP[t];
+  $('perm-limits').hidden = !NEW_LEVELS.has(t);
+}
+
+form.addEventListener('change', syncConsent);
+consent.addEventListener('click', (e) => {
+  if (e.target.closest('[data-close]') || e.target === consent) consent.close(); // ✕, Cancel, or the backdrop
+});
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = {
+    permissions: { balances: form.balances.value, recipients: form.recipients.value, transfers: form.transfers.value },
+    perPaymentLimitEUR: Number(form.perPaymentLimitEUR.value),
+    monthlyLimitEUR: Number(form.monthlyLimitEUR.value),
+  };
+  const res = await fetch('/api/pass', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  if (!res.ok) {
+    $('consent-error').textContent = (await res.json().catch(() => ({}))).error || 'Something went wrong.';
+    return;
+  }
+  consent.close();
+  lastKey = '';
+  poll();
+});
 
 // Icon and label for each kind of activity entry.
 const ICON_IMG = {
@@ -133,8 +210,8 @@ const ICON_IMG = {
 };
 function activityLook(a) {
   switch (a.kind) {
-    case 'paid': return { icon: ICON_IMG.arrow, cls: '', label: 'Sent' };
-    case 'approved': return { icon: '✓', cls: 'ok glyph', label: 'Approved by you' };
+    case 'paid': return { icon: ICON_IMG.arrow, cls: '', label: a.byUser ? 'Sent · approved by you' : 'Sent by Claude' };
+    case 'pass': return { icon: '✓', cls: 'ok glyph', label: 'Agent Pass updated' };
     case 'declined': return { icon: '✕', cls: 'no glyph', label: 'Declined by you', muted: true };
     case 'blocked': return { icon: '✕', cls: 'no glyph', label: 'Blocked at send time', muted: true };
     case 'revoked': return { icon: '⏻', cls: 'no glyph', label: 'Access revoked' };
@@ -153,7 +230,7 @@ function renderActivity(activity, drafts) {
     ? activity.map((a) => {
         const look = activityLook(a);
         const d = a.draftId ? draftsById[a.draftId] : null;
-        const title = d ? d.recipientName : a.kind === 'revoked' || a.kind === 'restored' ? 'Claude' : 'Wise';
+        const title = d ? d.recipientName : ['revoked', 'restored', 'pass'].includes(a.kind) ? 'Claude' : 'Wise';
         const amount = d ? `<span class="amount ${look.muted ? 'muted' : ''}">${num(d.amount, d.currency)} ${esc(d.currency)}</span>` : '';
         return `<div class="tx">
           <span class="icon-btn ${look.cls}">${look.icon}</span>
@@ -169,10 +246,12 @@ function renderActivity(activity, drafts) {
 }
 
 function render(s) {
+  const first = !lastPass;
   renderApprovals(s.drafts);
   renderBalances(s.balances);
-  renderMandate(s.mandate, s.recipients);
+  renderPass(s.pass, s.recipients);
   renderActivity(s.activity, s.drafts);
+  if (first && location.hash === '#consent') openConsent(); // direct link to the consent screen
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +290,7 @@ const ACTIONS = {
   decline: (id) => post(`/api/drafts/${encodeURIComponent(id)}/decline`),
   revoke: () => post('/api/revoke'),
   restore: () => post('/api/restore'),
+  consent: openConsent,
 };
 
 document.addEventListener('click', (e) => {

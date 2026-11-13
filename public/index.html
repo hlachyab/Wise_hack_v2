@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Wise · AI Mandate</title>
+<title>Wise · Agent Pass</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/styles.css" />
@@ -11,7 +11,7 @@
 <body>
 <div class="topbar">
   <header>
-    <div class="brand"><img class="logo" src="/assets/wise-logo-forest.svg" alt="Wise" /><span id="conn" class="chip">AI Mandate</span></div>
+    <div class="brand"><img class="logo" src="/assets/wise-logo-forest.svg" alt="Wise" /><span id="conn" class="chip">Agent Pass</span></div>
     <div class="header-right">
       <span class="icon-btn"><img src="/assets/bell.svg" width="24" height="24" alt="Notifications" /></span>
       <img class="avatar-img" src="/assets/avatar.png" alt="Your profile" />
@@ -24,8 +24,8 @@
 
   <div class="hero">
     <div>
-      <h1 class="title-screen">AI Mandate</h1>
-      <p class="subtitle">The agent has power. Your Mandate has authority.</p>
+      <h1 class="title-screen">Agent Pass</h1>
+      <p class="subtitle">Your assistant handles routine payments. You set the rules, and approve the rest.</p>
     </div>
   </div>
 
@@ -45,12 +45,46 @@
         <div class="section-head"><h2 class="title-section">Balances</h2></div>
         <div id="balances" class="cards"></div>
       </section>
-      <section id="sec-mandate">
-        <div class="section-head"><h2 class="title-section">Your Mandate</h2><span id="mandate-badge" class="chip">Active</span></div>
-        <div id="mandate"></div>
+      <section id="sec-pass">
+        <div class="section-head"><h2 class="title-section">Claude's access</h2><span id="pass-badge" class="chip">Active</span></div>
+        <div id="pass"></div>
       </section>
     </div>
   </div>
+
+  <!-- The consent screen: Wise's permission levels, extended with Draft and Act for transfers. -->
+  <dialog id="consent" class="consent" aria-labelledby="consent-title">
+    <form method="dialog" id="consent-form">
+      <div class="consent-top">
+        <img class="logo" src="/assets/wise-logo-forest.svg" alt="Wise" />
+        <button type="button" class="close" data-close aria-label="Close">✕</button>
+      </div>
+      <h2 id="consent-title" class="title-sub" tabindex="-1" autofocus>Claude wants to access your Wise account</h2>
+      <p class="subtitle">Choose what Claude can see and do. You can change this or revoke access at any time.</p>
+
+      <div class="perm">
+        <div class="perm-head"><b>Balances</b><span class="seg" data-perm="balances"></span></div>
+      </div>
+      <div class="perm">
+        <div class="perm-head"><b>Recipients</b><span class="seg" data-perm="recipients"></span></div>
+      </div>
+      <div class="perm perm-main">
+        <div class="perm-head"><b>Transfers</b><span class="seg" data-perm="transfers"></span></div>
+        <p class="perm-help" id="transfers-help"></p>
+        <div class="perm-limits" id="perm-limits">
+          <label>Per payment, up to<span class="money-in"><span>€</span><input name="perPaymentLimitEUR" type="number" min="1" step="1" inputmode="numeric" /></span></label>
+          <label>Per month, up to<span class="money-in"><span>€</span><input name="monthlyLimitEUR" type="number" min="1" step="1" inputmode="numeric" /></span></label>
+          <p class="perm-note">Saved recipients only. New recipients and changed bank details always need your approval.</p>
+        </div>
+      </div>
+
+      <p class="consent-error" id="consent-error"></p>
+      <div class="btn-row">
+        <button type="button" class="btn btn-secondary" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary">Allow</button>
+      </div>
+    </form>
+  </dialog>
 
   <footer>Demo with mock money. Not affiliated with or endorsed by Wise. · <button id="reset">Reset demo</button></footer>
 </main>

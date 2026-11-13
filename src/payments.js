@@ -98,6 +98,7 @@ function send(d, byUser) {
     draftId: d.id,
     decision: 'paid',
     rule: d.rule,
+    byUser,
     text: `Sent ${fmt(d.amount, d.currency)} to ${d.recipientName}. ${byUser ? 'You approved it in the Wise app.' : d.reason}`,
   });
   log(`paid ${d.id}${byUser ? ' (approved by user)' : ''}`);
