@@ -6,12 +6,14 @@ A hackathon project for the Wise hackathon in Tallinn (theme: **Max Ease**).
 
 Wise already has an official MCP that lets AI assistants like Claude **read** an account: balances, recipients, activity. But it stops there. The consent screen only offers **None** or **View**, and asking an assistant to *"send money to Jana"* ends with *"I can't, do it yourself in the Wise app."* The last step of every payment is still manual.
 
+Wise's own [Wise for AI page](https://wise.com/feature/wise-for-ai-mcp) already teases what's next: *coming soon*, drafting transfers that you still approve in Wise. The Agent Pass is a working version of that step (**Draft**) and of the one after it (**Act**).
+
 Letting an AI move money is a **trust problem, not a technical one**. The **Wise Agent Pass** is the missing trust layer: limits, saved recipients, approvals and an audit trail, built into Wise's own permission model.
 
 | Level | What the assistant can do |
 |---|---|
 | **None** | Nothing |
-| **View** | See balances, recipients, rates and activity *(what exists today)* |
+| **View** | See balances, recipients and exchange rates *(what exists today)* |
 | **Draft** *(new)* | Prepare transfers. You send each one with one tap in the Wise app. |
 | **Act** *(new)* | Send money within your limits (for example up to €200 per payment, €500 per month, saved recipients only). Anything else waits for your one-tap approval. |
 
@@ -47,7 +49,7 @@ There are two screens, side by side in the live demo:
 
 | Claude Desktop (the assistant) | The "Wise app" at <http://localhost:4000> (you) |
 |---|---|
-| You chat with Claude. When it uses a Wise tool, a **Wise card** appears in the reply: balances, a quote, or a payment with its status and the steps *Prepared → Pass → You / Auto → Sent*. | **Needs your approval** cards, **Claude's access** (permission levels, limits, spend this month, saved recipients), balances, and an activity log that explains every decision in plain language. |
+| You chat with Claude. When it uses a Wise tool, a **Wise card** appears in the reply: balances, a quote, or a payment with its status and the steps *Prepared → Pass → You / Auto → Sent*. | A green hero showing whether Claude is connected and at which level, **Needs your approval** cards, **Claude's access** (permission levels, limits, spend this month, saved recipients), balances, an activity log that explains every decision, and **Try asking Claude** cards you can click to copy the demo prompts. |
 | Claude can prepare payments, and send the ones your pass allows. | Only here can you change the **consent screen**, **Approve and send**, **Decline**, or **Revoke access**. |
 
 ## Quick start
@@ -213,7 +215,7 @@ wise-mcp/
 |------|--------------|---|
 | `get_balances` | Mock balances: EUR 2,400, GBP 300, JPY 120,000 | Balances: View |
 | `list_recipients` | Saved recipients, IBANs masked to the last 4 | Recipients: View |
-| `get_quote` | Mock mid-market rate (1 EUR = 0.85 GBP = 162 JPY) and fee (0.43% + €0.30) | Not revoked |
+| `get_quote` | Mock mid-market rate (1 EUR = 0.85 GBP = 162 JPY) and fee (0.43% + €0.30) | Rates: View |
 | `prepare_payment` | Creates a **draft** and checks it against the pass. Status: `ready`, `awaiting_user` or `blocked`. Never sends money. | Transfers: Draft or Act (otherwise blocked) |
 | `confirm_payment` | Sends a `ready` draft. Re-checks the pass first. | Transfers: Act |
 | `payment_status` | Status of a draft. The chat card uses it to update live. | Transfers: View |
@@ -246,7 +248,7 @@ All POST endpoints return the full page state (the `GET /api/state` shape) or `{
 | Method | Path | What it does |
 |---|---|---|
 | GET | `/api/state` | Balances, recipients (masked), pass, drafts, activity |
-| POST | `/api/pass` | Save the consent screen. Body: `{ "permissions": { "balances", "recipients", "transfers" }, "perPaymentLimitEUR", "monthlyLimitEUR" }` (every field optional) |
+| POST | `/api/pass` | Save the consent screen. Body: `{ "permissions": { "balances", "recipients", "rates", "transfers" }, "perPaymentLimitEUR", "monthlyLimitEUR" }` (every field optional) |
 | POST | `/api/drafts/:id/approve` | Approve **and send** a draft that is `awaiting_user` |
 | POST | `/api/drafts/:id/decline` | Decline a draft that is `awaiting_user` |
 | POST | `/api/revoke` | Turn Claude's access off |
@@ -285,6 +287,10 @@ Restarting Claude Desktop does **not** reset the demo, because state is kept in 
 - Is a write or act level planned for the official Wise MCP?
 - Which sandbox endpoints are available for quotes and transfers? This demo uses mock data, and the rules engine would sit in front of them unchanged.
 - Would the approval step fit with Wise's existing strong customer authentication in the app?
+
+## Design inspiration
+
+The web app's hero band, display headline, status pills, three pillars and coloured prompt cards follow the look of Wise's real [Wise for AI page](https://wise.com/feature/wise-for-ai-mcp), and the consent screen follows its permission model (choose a profile, then what to share). Wise's own display typeface isn't public, so headlines use Inter at weight 900.
 
 ## Credits
 

@@ -76,7 +76,7 @@ The pass is stored in `state.pass` (`src/state.js`):
 ```js
 pass: {
   revoked: false,
-  permissions: { balances: 'view', recipients: 'view', transfers: 'view' },
+  permissions: { balances: 'view', recipients: 'view', rates: 'view', transfers: 'view' },
   perPaymentLimitEUR: 200,
   monthlyLimitEUR: 500,
   allowedCurrencies: ['EUR', 'GBP', 'JPY'],
@@ -84,7 +84,7 @@ pass: {
 }
 ```
 
-**Levels.** Balances and recipients can be `none` or `view`, like Wise's consent screen today. Transfers add two new levels:
+**Levels.** Balances, recipients and exchange rates can be `none` or `view`, like Wise's consent screen today (`get_quote` needs Rates: View). Transfers add two new levels:
 
 | Transfers | `prepare_payment` | `confirm_payment` | Reads |
 |---|---|---|---|
@@ -252,9 +252,9 @@ The protections are layered, and each layer works even if the one above it fails
 
 `public/` is plain HTML, CSS and JavaScript, with no build step.
 
-- **`index.html`** has the layout: a top bar (with an *Agent Pass · Act* chip), a hero, then two columns. The main column holds *Needs your approval* and *Activity*; the side column holds *Balances* and *Claude's access*. Under 900px wide it becomes one column. It also holds the **consent screen**, a `<dialog>`.
+- **`index.html`** has the layout: a top bar (with an *Agent Pass · Act* chip), a green hero band with status pills (*Claude connected*, *Transfers: Act*) and a **Change permissions** button, then two columns. The main column holds *Needs your approval* and *Activity*; the side column holds *Balances* and *Claude's access*. Under 900px wide it becomes one column. Below them come three pillars and the **Try asking Claude** cards; clicking a card copies its prompt for pasting into Claude. It also holds the **consent screen**, a `<dialog>`.
 - **`app.js`** polls `GET /api/state` every second. It only re-renders when the state changed, or every 10 seconds to keep "2m ago" fresh. Each section has its own render function. Approval cards slide in only when they're new, and a balance flashes when it changes.
-- **The consent screen** opens from **Change permissions**, or directly at `http://localhost:4000/#consent`. Each permission is a segmented control (None / View, plus **Draft** and **Act** marked *NEW* for transfers). The help text under Transfers changes with the level, and the limits only appear for Draft and Act. **Allow** posts to `/api/pass`; any error from the server is shown in the dialog.
+- **The consent screen** opens from **Change permissions**, or directly at `http://localhost:4000/#consent`. It first shows the profile being shared (*Personal account*), like Wise's real consent flow. Each permission is a segmented control (None / View, plus **Draft** and **Act** marked *NEW* for transfers). The help text under Transfers changes with the level, and the limits only appear for Draft and Act. **Allow** posts to `/api/pass`; any error from the server is shown in the dialog.
 - **Approval cards** say **Approve and send**, or just **Send** when the payment waits only because the pass is Draft.
 - **Buttons** carry `data-act="approve|decline|consent|revoke|restore"`. One click handler maps them to actions, then polls straight away so the page updates instantly.
 - **All text is escaped** with `esc()` before it goes into HTML, because notes come from invoices and could contain markup.
@@ -306,7 +306,7 @@ All of it lives in `createInitialState()` (`src/state.js`) and `src/money.js`.
 |---|---|
 | Balances | EUR 2,400 · GBP 300 · JPY 120,000 |
 | Saved recipients | **Elisa** (`elisa`), home internet, EUR, `EE47 1000 0010 2014 5685` · **Jana Michiels** (`jana`), family, EUR, `BE71 0961 2345 6769` · **Hikari Print Co.** (`hikari`), supplier, JPY, `JP12 0001 1111 2222` |
-| Agent Pass | Balances View · Recipients View · **Transfers View** · €200 per payment · €500 per month · EUR, GBP, JPY |
+| Agent Pass | Balances, Recipients, Rates: View · **Transfers: View** · €200 per payment · €500 per month · EUR, GBP, JPY |
 | Rates | 1 EUR = 0.85 GBP = 162 JPY |
 | Fee | 0.43% + €0.30 (in the source currency), only when converting |
 
@@ -321,6 +321,8 @@ Both front ends follow the **WiseStart Hackathon Figma kit**:
 - **Components:** 48px pill buttons, Section Card (white, radius 24, padding 24), Stepper (2px track with a gradient fill and an 8px dot), Bullet Point (20px icon), money input, flags.
 
 The tokens are CSS custom properties at the top of `public/styles.css` and `ui/card.html`.
+
+The web app's hero, pillars and prompt cards also borrow from Wise's real [Wise for AI page](https://wise.com/feature/wise-for-ai-mcp): a bright green band, a huge uppercase headline, white status pills, round-icon pillars, and big rounded cards in bright green, forest, blue (`#A0E1E1`) and grey. Wise's display typeface isn't public, so headlines use Inter 900 with tight letter-spacing.
 
 ## 14. Testing
 
@@ -346,8 +348,9 @@ Because it talks over stdio like Claude does, it also catches anything that poll
 | Start the demo on Act instead of View | `permissions.transfers` in `createInitialState()` |
 | Add a currency | `RATES_PER_EUR` (and `SYMBOLS`) in `src/money.js`, `allowedCurrencies` in `src/state.js`, plus flags and names in `public/app.js` and `ui/card.html` |
 | Add or reorder a rule | `decide()` in `src/rules.js`, then add a check to `test/e2e.mjs` |
-| Add a permission area | `permissions` in `src/state.js`, `updatePass()` in `src/payments.js`, `readBlocked()` in the tool, and `PERM_OPTIONS` plus a row in `public/index.html` |
+| Add a permission area | `permissions` in `src/state.js` (and bump `STATE_VERSION`), `updatePass()` in `src/payments.js`, `readBlocked()` in the tool, and `PERM_OPTIONS`, the access panel row and a consent row in `public/` |
 | Change what Claude is told | `INSTRUCTIONS`, `NO_APPROVE` and the tool descriptions in `src/mcp.js` |
 | Change the chat card | `ui/card.html`, then fully quit and reopen Claude Desktop (it caches the card) |
 | Change the web app | `public/`; just reload the page |
+| Change the demo prompt cards | The `data-copy` buttons in `public/index.html` |
 | Use another port | Set `PORT` in the `env` of the Claude Desktop config |
