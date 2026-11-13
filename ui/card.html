@@ -8,6 +8,7 @@
   The `kind` field picks the layout: balances, recipients, quote or payment.
 
   The card is display-only. It can't approve anything; only the web app can.
+  Its buttons only open the Wise app (ui/open-link).
   It must stay a single self-contained file.
 -->
 <html lang="en">
@@ -142,7 +143,7 @@
 </style>
 </head>
 <body>
-<div class="card" id="root"><div class="skeleton"><span class="pulse"></span> Checking with your Wise Mandate…</div></div>
+<div class="card" id="root"><div class="skeleton"><span class="pulse"></span> Checking with your Agent Pass…</div></div>
 <script>
 (() => {
   const WISE_APP_URL = 'http://localhost:4000';
@@ -253,7 +254,7 @@
       <div class="brand">
         <img class="logo forest" data-fb="logo" src="${ASSETS.logoForest}" alt="Wise" />
         <img class="logo lime" data-fb="logo" src="${ASSETS.logoLime}" alt="Wise" />
-        <span class="chip">AI Mandate</span>
+        <span class="chip">Agent Pass</span>
       </div>
       <span class="mock">Demo · mock money</span>
     </div>`;
@@ -264,29 +265,27 @@
 
   function renderLoading(args) {
     if (args && args.recipientId) {
-      root.innerHTML = header() + `<div class="skeleton"><span class="pulse"></span> Checking ${esc(fmt(args.amount, args.currency))} to ${esc(args.recipientId)} against your Mandate…</div>`;
+      root.innerHTML = header() + `<div class="skeleton"><span class="pulse"></span> Checking ${esc(fmt(args.amount, args.currency))} to ${esc(args.recipientId)} against your Agent Pass…</div>`;
     }
   }
 
   const STATUS = {
     ready: ['ok', 'Allowed'],
     paid: ['ok', '✓ Sent'],
-    approved: ['ok', '✓ Approved by you'],
     awaiting_user: ['wait', 'Needs your approval'],
     declined: ['no', '✕ Declined'],
     blocked: ['no', '✕ Blocked'],
   };
 
-  // Stepper: Prepared · Mandate · You · Sent  (0..3)
+  // Stepper: Prepared · Pass · You (or Auto) · Sent  (0..3)
   function stepper(s) {
-    const needsYou = s.rule && (s.rule.startsWith('hard_stop') || s.rule === 'limit.per_payment');
+    const needsYou = s.status === 'awaiting_user' || s.status === 'declined' || s.sentByUser;
     let at = 1, fail = false;
-    const lab = ['done', 'done', needsYou ? '' : '', ''];
+    const lab = ['done', 'done', '', ''];
     if (s.status === 'ready') { at = 1; lab[1] = 'current'; }
     if (s.status === 'awaiting_user') { at = 2; lab[2] = 'current'; }
-    if (s.status === 'approved') { at = 2; lab[2] = 'done'; lab[3] = 'current'; }
     if (s.status === 'paid') { at = 3; lab[2] = 'done'; lab[3] = 'current'; }
-    if (s.status === 'blocked') { fail = true; if (needsYou) { at = 2; lab[2] = 'fail'; } else { at = 1; lab[1] = 'fail'; } }
+    if (s.status === 'blocked') { fail = true; at = 1; lab[1] = 'fail'; }
     if (s.status === 'declined') { fail = true; at = 2; lab[2] = 'fail'; }
     const pct = (at / 3) * 100;
     const youLabel = needsYou ? 'You' : 'Auto';
@@ -295,7 +294,7 @@
         <div class="progress ${fail ? 'fail' : ''}" style="width:${pct}%"></div>
         ${fail ? `<span class="dot fail" style="left:${pct}%"></span>` : `<img class="dot" data-fb="dot" src="${ASSETS.dot}" width="8" height="8" alt="" style="left:${pct}%" />`}
       </div>
-      <div class="labels"><span class="${lab[0]}">Prepared</span><span class="${lab[1]}">Mandate</span><span class="${lab[2]}">${youLabel}</span><span class="${lab[3]}">Sent</span></div>
+      <div class="labels"><span class="${lab[0]}">Prepared</span><span class="${lab[1]}">Pass</span><span class="${lab[2]}">${youLabel}</span><span class="${lab[3]}">Sent</span></div>
     </div>`;
   }
 
@@ -310,6 +309,24 @@
     if (s.kind === 'quote') return renderQuote(s);
     if (s.kind === 'recipients') return renderRecipients(s);
     if (s.kind === 'payment') return renderPayment(s);
+    if (s.kind === 'approvals') return renderApprovals(s);
+    if (s.kind === 'denied') return renderDenied(s);
+  }
+
+  // A read Claude isn't allowed to do (access revoked, or the permission is None).
+  function renderDenied(s) {
+    root.innerHTML = header() + `<h3 class="title-sub">No access</h3>
+      <div class="bullets">${bullet('neg', esc(s.error))}${bullet('pos', '<strong>Only you</strong> decide what Claude can see, in the Wise app.')}</div>
+      <button class="btn" data-act="open">Open Wise app</button>`;
+  }
+
+  // get_pending_approvals: payments waiting for the user.
+  function renderApprovals(s) {
+    const rows = s.pending.map((d) => `<div class="row" style="margin-top:12px">${avatar(d.recipient, d.country)}
+        <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>${esc(d.reason)}</small></div></div>`).join('');
+    root.innerHTML = header() + `<h3 class="title-sub">${s.pending.length ? 'Waiting for you' : 'Nothing waiting'}</h3>` +
+      (rows || `<div class="bullets">${bullet('pos', 'No payments need your approval.')}</div>`) +
+      (s.pending.length ? `<div class="bullets">${bullet('pos', "<strong>Claude can't approve these.</strong> Approve or decline them in the Wise app.")}</div><button class="btn" data-act="open">Review in Wise app</button>` : '');
   }
 
   function renderPayment(s) {
@@ -317,23 +334,31 @@
       root.innerHTML = header() + `<div class="status no">✕ Not sent</div><div class="bullets">${bullet('neg', esc(s.error))}</div>`;
       return;
     }
-    const [cls, label] = STATUS[s.status] || ['wait', s.status];
-    const good = ['ready', 'paid', 'approved'].includes(s.status);
-    const eyebrow = { ready: 'Claude prepared', paid: 'Claude sent', approved: 'You approved', awaiting_user: 'Claude wants to send', declined: 'You declined', blocked: 'Claude tried to send' }[s.status] || 'Payment';
+    const draftOnly = s.rule === 'pass.draft'; // within the rules; waiting only because the pass is Draft
+    const readOnly = s.rule === 'pass.transfers_read_only';
+    let [cls, label] = STATUS[s.status] || ['wait', s.status];
+    if (s.status === 'awaiting_user' && draftOnly) label = 'Ready for you to send';
+    const eyebrow = {
+      ready: 'Claude prepared',
+      paid: s.sentByUser ? 'You sent' : 'Claude sent',
+      awaiting_user: draftOnly ? 'Claude prepared' : 'Claude wants to send',
+      declined: 'You declined',
+      blocked: 'Claude tried to send',
+    }[s.status] || 'Payment';
 
     const bullets = [];
-    if (good && s.status !== 'approved') bullets.push(bullet('pos', esc(s.reason)));
-    else if (s.status === 'approved') bullets.push(bullet('pos', `<strong>You approved this</strong> in the Wise app. ${esc(s.reason)}`));
+    if (s.status === 'paid' && s.sentByUser) bullets.push(bullet('pos', '<strong>You approved and sent this</strong> in the Wise app.'));
+    else if (s.status === 'ready' || s.status === 'paid') bullets.push(bullet('pos', esc(s.reason)));
     else if (s.status === 'awaiting_user') bullets.push(bullet('warn', esc(s.reason)));
     else bullets.push(bullet('neg', esc(s.reason)));
     (s.warnings || []).forEach((w) => bullets.push(bullet('neg', `<strong>Possible prompt injection.</strong> ${esc(w)}`)));
-    if (s.status === 'awaiting_user') bullets.push(bullet('pos', `<strong>Claude can't approve this.</strong> Only you can, in the Wise app.`));
+    if (s.status === 'awaiting_user') bullets.push(bullet('pos', draftOnly ? '<strong>One tap in the Wise app</strong> sends it.' : `<strong>Claude can't approve this.</strong> Only you can, in the Wise app.`));
     if (s.status === 'blocked' || s.status === 'declined') bullets.push(bullet('pos', `<strong>No money moved.</strong> Claude won't retry this payment.`));
     if (s.status === 'paid' && s.balanceLeft != null) bullets.push(bullet('pos', `<strong>${fmt(s.balanceLeft, s.currency)}</strong> ${esc(s.currency)} balance left.`));
 
     let action = '';
-    if (s.status === 'awaiting_user') action = `<button class="btn" data-act="open">Review in Wise app</button>${hostCaps.serverTools ? '<div class="foot">This card updates when you decide.</div>' : ''}`;
-    if (s.status === 'approved') action = `<button class="btn" data-act="send" data-id="${esc(s.draftId)}">Tell Claude to send it</button>`;
+    if (s.status === 'awaiting_user') action = `<button class="btn" data-act="open">${draftOnly ? 'Send in Wise app' : 'Review in Wise app'}</button>${hostCaps.serverTools ? '<div class="foot">This card updates when you decide.</div>' : ''}`;
+    if (readOnly) action = `<button class="btn" data-act="open">Change permissions in Wise app</button>`;
 
     const note = s.note ? ' · ' + esc(s.note.slice(0, 48)) + (s.note.length > 48 ? '…' : '') : '';
     root.innerHTML = header() + `
@@ -388,8 +413,8 @@
   }
 
   function renderRecipients(s) {
-    root.innerHTML = header() + `<h3 class="title-sub">Trusted recipients</h3>` +
-      s.recipients.map((r) => `<div class="row" style="margin-top:12px">${avatar(r.name, r.country)}<div class="meta"><b>${esc(r.name)}</b><small>${esc(r.currency)} · ${esc(r.iban)}</small></div></div>`).join('') +
+    root.innerHTML = header() + `<h3 class="title-sub">Saved recipients</h3>` +
+      s.recipients.map((r) => `<div class="row" style="margin-top:12px">${avatar(r.name, r.country)}<div class="meta"><b>${esc(r.name)}</b><small>${r.note ? esc(r.note) + ' · ' : ''}${esc(r.currency)} · ${esc(r.iban)}</small></div></div>`).join('') +
       `<div class="bullets">${bullet('pos', `<strong>Only you</strong> can add or change recipients, in the Wise app.`)}</div>`;
   }
 
@@ -397,11 +422,6 @@
     const b = e.target.closest('[data-act]');
     if (!b) return;
     if (b.dataset.act === 'open') request('ui/open-link', { url: WISE_APP_URL }).catch(() => {});
-    if (b.dataset.act === 'send') {
-      b.disabled = true;
-      b.textContent = 'Asked Claude ✓';
-      request('ui/message', { role: 'user', content: [{ type: 'text', text: `I approved payment ${b.dataset.id} in the Wise app. Please send it now.` }] }).catch(() => {});
-    }
   });
 })();
 </script>

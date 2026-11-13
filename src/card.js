@@ -68,4 +68,5 @@ export const cardFor = (d) => ({
   currency: d.currency,
   amountEUR: d.amountEUR,
   note: d.note,
+  sentByUser: !!d.sentByUser,
 });

@@ -34,13 +34,17 @@ const text = (data, summary) => ({
 /** Same as text(), plus structuredContent for the in-chat card. `kind` picks the card layout. */
 const view = (kind, data, summary) => ({ ...text(data, summary), structuredContent: { kind, ...data } });
 
-/** A refused read (revoked, or permission set to None). */
-const denied = (message) => ({ ...view('denied', { error: message }, message), isError: true });
+/** A refused read (revoked, or permission set to None). The card shows `message`; Claude also gets `hint`. */
+const denied = ({ message, hint }) => ({ ...view('denied', { error: message }, `${message} ${hint}`), isError: true });
 
 /** Why Claude can't read `area` right now, or null if it can. */
 function readBlocked(area) {
-  if (state.pass.revoked) return "The user revoked Claude's access to their Wise account. Tell them they can restore it in the Wise app.";
-  if (state.pass.permissions[area] === 'none') return `The user's Agent Pass doesn't allow Claude to see their ${area}.`;
+  if (state.pass.revoked) {
+    return { message: "Claude's access to your Wise account is revoked.", hint: 'Tell the user they can restore it in the Wise app.' };
+  }
+  if (state.pass.permissions[area] === 'none') {
+    return { message: `Your Agent Pass doesn't let Claude see your ${area}.`, hint: 'Tell the user they can change this in the Wise app.' };
+  }
   return null;
 }
 
