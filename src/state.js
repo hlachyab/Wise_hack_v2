@@ -13,7 +13,7 @@ const STATE_FILE = process.env.WISE_STATE_FILE || path.join(ROOT, '.wise-state.j
 const MAX_ACTIVITY = 100;
 
 /** Bump this when the shape of the state changes, so an old state file is replaced on load. */
-const STATE_VERSION = 2;
+const STATE_VERSION = 3;
 
 /** Agent Pass levels, from least to most power. */
 export const READ_LEVELS = ['none', 'view'];
@@ -33,7 +33,7 @@ export function createInitialState() {
       revoked: false,
       // Like Wise's consent screen: None or View for reading, plus Draft and Act for transfers.
       // A fresh demo starts read-only, so "the wall" can be shown before switching to Act.
-      permissions: { balances: 'view', recipients: 'view', transfers: 'view' },
+      permissions: { balances: 'view', recipients: 'view', rates: 'view', transfers: 'view' },
       perPaymentLimitEUR: 200,
       monthlyLimitEUR: 500,
       allowedCurrencies: ['EUR', 'GBP', 'JPY'],

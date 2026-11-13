@@ -40,7 +40,6 @@ header { max-width: 1200px; margin: 0 auto; padding: 16px 32px; display: flex; a
 .icon-btn .badge { position: absolute; right: -4px; bottom: -4px; width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 2px var(--screen); }
 
 .page { max-width: 1200px; margin: 0 auto; padding: 0 32px 48px; }
-.hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
 .layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 56px; align-items: start; }
 .col { min-width: 0; }
 @media (max-width: 900px) {
@@ -178,3 +177,47 @@ footer { text-align: center; margin-top: 32px; font-size: 12px; line-height: 18p
 footer button { background: none; border: 0; color: var(--forest); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
 .offline { background: var(--negative-soft); color: var(--negative); border-radius: 16px; padding: 12px 16px; font-weight: 600; margin-top: 16px; display: none; }
 .consent h2:focus { outline: none; }
+
+/* ---- Inspired by wise.com/feature/wise-for-ai-mcp ---- */
+.hero-band { background: var(--bright-green); color: var(--forest); }
+.hero-inner { max-width: 1200px; margin: 0 auto; padding: 48px 32px 40px; text-align: center; }
+.hero-eyebrow { margin: 0 0 16px; font-size: 18px; line-height: 24px; font-weight: 500; }
+.display { margin: 0 auto; max-width: 980px; font-size: clamp(40px, 7vw, 84px); line-height: 0.88; font-weight: 900; letter-spacing: -0.045em; text-transform: uppercase; }
+.hero-sub { margin: 20px auto 0; max-width: 560px; font-size: 18px; line-height: 26px; font-weight: 500; }
+.hero-status { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 24px; }
+.status-pill { display: inline-flex; align-items: center; gap: 10px; padding: 6px 16px 6px 6px; border-radius: 100px; background: var(--screen); color: var(--content-primary); font-weight: 600; font-size: 15px; line-height: 22px; box-shadow: 0 1px 2px rgba(14, 15, 12, 0.08); }
+.status-pill i { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 14px; background: rgba(159, 232, 112, 0.45); color: var(--forest); }
+.status-pill.off i { background: var(--negative-soft); color: var(--negative); }
+.btn-dark { background: var(--forest); color: var(--bright-green); }
+.btn-dark:hover { background: #0E2200; }
+.hero-status .btn { flex: 0 0 auto; height: 42px; }
+
+.pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; margin-top: 64px; padding-top: 40px; border-top: 1px solid var(--border-soft); }
+.pillar { display: flex; gap: 16px; align-items: flex-start; }
+.pillar-icon { width: 64px; height: 64px; border-radius: 50%; background: rgba(159, 232, 112, 0.45); color: var(--forest); display: grid; place-items: center; flex-shrink: 0; }
+.pillar h3 { margin: 4px 0 6px; font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.pillar p { margin: 0; color: var(--content-secondary); }
+
+.prompts .hint { color: var(--content-tertiary); }
+.prompt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.prompt { text-align: left; border: 0; border-radius: 24px; padding: 24px; min-height: 180px; display: flex; flex-direction: column; justify-content: space-between; gap: 16px; font: inherit; cursor: pointer; transition: transform .15s; }
+.prompt:hover { transform: translateY(-2px); }
+.prompt b { font-size: 22px; line-height: 0.95; font-weight: 900; letter-spacing: -0.035em; text-transform: uppercase; }
+.prompt span { font-size: 16px; line-height: 22px; font-weight: 600; }
+.prompt.green { background: var(--bright-green); color: var(--forest); }
+.prompt.forest { background: var(--forest); color: var(--bright-green); }
+.prompt.blue { background: #A0E1E1; color: #21231D; }
+.prompt.grey { background: var(--neutral); color: var(--content-primary); }
+.prompt.copied::after { content: 'Copied ✓'; font-size: 13px; font-weight: 700; }
+
+.profile-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 16px; background: var(--neutral); margin-top: 16px; }
+.profile-row div { flex: 1; display: flex; flex-direction: column; }
+.profile-row small { color: var(--content-secondary); font-size: 13px; line-height: 20px; }
+.avatar-sm { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+
+@media (max-width: 900px) {
+  .hero-inner { padding: 32px 16px; }
+  .pillars { grid-template-columns: 1fr; gap: 20px; }
+  .prompt-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 520px) { .prompt-grid { grid-template-columns: 1fr; } .prompt { min-height: 0; } }

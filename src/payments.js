@@ -169,7 +169,7 @@ const LEVEL_NAMES = { none: 'None', view: 'View', draft: 'Draft', act: 'Act' };
 export function updatePass({ permissions = {}, perPaymentLimitEUR, monthlyLimitEUR }) {
   const p = state.pass;
   const next = { ...p.permissions };
-  for (const key of ['balances', 'recipients']) {
+  for (const key of ['balances', 'recipients', 'rates']) {
     if (permissions[key] === undefined) continue;
     if (!READ_LEVELS.includes(permissions[key])) throw new ActionError(400, `${key} must be one of ${READ_LEVELS.join(', ')}`);
     next[key] = permissions[key];

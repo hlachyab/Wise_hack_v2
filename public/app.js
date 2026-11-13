@@ -118,6 +118,14 @@ function renderPass(p, recipients) {
   setChip($('pass-badge'), !p.revoked, 'Active', 'Revoked');
   setChip($('conn'), !p.revoked, `Agent Pass · ${LEVELS[t].name}`, 'Claude access off');
 
+  // Hero status pills, like "Connection established" / "Permissions enabled" on the Wise for AI page.
+  $('hero-status').innerHTML = p.revoked
+    ? `<span class="status-pill off"><i>✕</i>Claude's access is revoked</span>
+       <button class="btn btn-dark" data-act="restore">Restore access</button>`
+    : `<span class="status-pill"><i>✓</i>Claude connected</span>
+       <span class="status-pill"><i>⛨</i>Transfers: ${LEVELS[t].name}${t === 'act' ? ` · up to ${fmt(p.perPaymentLimitEUR, 'EUR')}` : ''}</span>
+       <button class="btn btn-dark" data-act="consent">Change permissions</button>`;
+
   const level = (v) => `<span class="level ${v === 'none' || p.revoked ? 'off' : ''}">${p.revoked ? 'None' : LEVELS[v].name}</span>`;
   const pct = Math.min(100, (p.spentThisMonthEUR / p.monthlyLimitEUR) * 100);
   const left = Math.max(0, p.monthlyLimitEUR - p.spentThisMonthEUR);
@@ -125,6 +133,7 @@ function renderPass(p, recipients) {
     <div class="perm-rows">
       <div class="perm-row"><span>Balances</span>${level(p.permissions.balances)}</div>
       <div class="perm-row"><span>Recipients</span>${level(p.permissions.recipients)}</div>
+      <div class="perm-row"><span>Exchange rates</span>${level(p.permissions.rates)}</div>
       <div class="perm-row"><span>Transfers<small>${esc(p.revoked ? "Claude can't see or do anything." : TRANSFER_HELP[t])}</small></span>${level(t)}</div>
     </div>
     <div class="limits">
@@ -158,7 +167,7 @@ function renderPass(p, recipients) {
 
 const consent = $('consent');
 const form = $('consent-form');
-const PERM_OPTIONS = { balances: ['none', 'view'], recipients: ['none', 'view'], transfers: ['none', 'view', 'draft', 'act'] };
+const PERM_OPTIONS = { balances: ['none', 'view'], recipients: ['none', 'view'], rates: ['none', 'view'], transfers: ['none', 'view', 'draft', 'act'] };
 const NEW_LEVELS = new Set(['draft', 'act']); // the levels this project adds to Wise's None / View
 
 function openConsent() {
@@ -189,7 +198,7 @@ consent.addEventListener('click', (e) => {
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const body = {
-    permissions: { balances: form.balances.value, recipients: form.recipients.value, transfers: form.transfers.value },
+    permissions: { balances: form.balances.value, recipients: form.recipients.value, rates: form.rates.value, transfers: form.transfers.value },
     perPaymentLimitEUR: Number(form.perPaymentLimitEUR.value),
     monthlyLimitEUR: Number(form.monthlyLimitEUR.value),
   };
@@ -297,6 +306,17 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]');
   if (b) ACTIONS[b.dataset.act]?.(b.dataset.id);
 });
+// "Try asking Claude" cards copy their prompt, so the presenter can paste it into Claude.
+document.querySelectorAll('[data-copy]').forEach((card) => {
+  card.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(card.dataset.copy);
+      card.classList.add('copied');
+      setTimeout(() => card.classList.remove('copied'), 1500);
+    } catch { /* clipboard blocked: the text is on the card anyway */ }
+  });
+});
+
 $('reset').addEventListener('click', () => {
   prevBalances = null;
   post('/api/reset');

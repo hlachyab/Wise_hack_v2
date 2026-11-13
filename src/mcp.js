@@ -43,7 +43,8 @@ function readBlocked(area) {
     return { message: "Claude's access to your Wise account is revoked.", hint: 'Tell the user they can restore it in the Wise app.' };
   }
   if (state.pass.permissions[area] === 'none') {
-    return { message: `Your Agent Pass doesn't let Claude see your ${area}.`, hint: 'Tell the user they can change this in the Wise app.' };
+    const what = { rates: 'exchange rates and fees' }[area] || area;
+    return { message: `Your Agent Pass doesn't let Claude see your ${what}.`, hint: 'Tell the user they can change this in the Wise app.' };
   }
   return null;
 }
@@ -106,7 +107,8 @@ export function createMcpServer() {
     },
     annotations: readOnly,
   }, (args) => {
-    if (state.pass.revoked) return denied(readBlocked('transfers'));
+    const no = readBlocked('rates');
+    if (no) return denied(no);
     const q = getQuote(args);
     return view('quote', q, q.summary);
   });

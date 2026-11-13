@@ -115,7 +115,9 @@ check('USD -> blocked (currency.not_allowed)', p.json.status === 'blocked' && p.
 check('consent screen rejects a bad level', (await setPass({ permissions: { transfers: 'god' } })).status === 400);
 await setPass({ permissions: { balances: 'none' } });
 check('balances None -> refused', (await call('get_balances')).isError);
-await setPass({ permissions: { balances: 'view' } });
+await setPass({ permissions: { balances: 'view', rates: 'none' } });
+check('rates None -> quote refused', (await call('get_quote', { amount: 100, fromCurrency: 'EUR', toCurrency: 'JPY' })).isError);
+await setPass({ permissions: { rates: 'view' } });
 
 // --- Revoke: the kill switch ---
 await api('/api/revoke', 'POST');
