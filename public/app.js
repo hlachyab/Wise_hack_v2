@@ -102,7 +102,7 @@ function renderBalances(balances) {
   $('main-total').textContent = fmt(balances.EUR ?? 0, 'EUR');
   $('balances').innerHTML = Object.entries(balances).map(([c, a]) => `
     <div class="ccy-item ${prevBalances && prevBalances[c] !== a ? 'flash' : ''}">
-      ${currencyFlag(c, 40, 'ccy-dot')}<span>${fmt(a, c)}</span><span class="chev">›</span>
+      ${currencyFlag(c, 36, 'ccy-dot')}<span>${fmt(a, c)}</span><span class="chev">›</span>
     </div>`).join('');
   if (document.querySelector('.ccy-item.flash')) {
     setTimeout(() => document.querySelectorAll('.ccy-item.flash').forEach((el) => el.classList.remove('flash')), 900);
