@@ -238,6 +238,7 @@ check('scam account: blocked in the draft and at send (fraud.reported_account), 
 const scamDraft = (await api('/api/state')).drafts.find((d) => d.id === scam.json.draftId);
 check('scam account: the Wise app gets why (reported, saved account, fraud signals)', scamDraft.scam?.why.includes('reported')
   && scamDraft.scam.savedIbanMasked === '•••• 7731' && scamDraft.fraud.level === 'high' && scamDraft.fraud.signals.length >= 2);
+check('scam account: Claude\'s card gets the scam alert data', scam.preview.json.items[0].scam?.why.includes('reported') && scam.card.scam?.savedIbanMasked === '•••• 7731');
 check('scam account: Claude cannot add it as a recipient', (await call('add_recipient', { name: 'Tallinn Power Billing', iban: 'LT47 3250 0794 5512 0937', currency: 'EUR' })).isError);
 check('user can add a recipient in the app', (await fetch(`http://localhost:${PORT}/api/recipients`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Test Person', iban: 'DE89 3704 0044 0532 0130 00', currency: 'EUR' }) })).ok);
 
@@ -253,7 +254,7 @@ await setPass({ autoPay: { jana: true } });
 await setPass({ dailyCountLimit: (await api('/api/state')).pass.sentTodayCount + 1, autoPay: { elisa: true } });
 const capBatch = await pay([{ recipientId: 'elisa', amount: 5, currency: 'EUR' }, { recipientId: 'elisa', amount: 6, currency: 'EUR' }], 'Two');
 check('second payment over the daily cap is blocked', capBatch.card.items[0].status === 'paid'
-  && capBatch.card.items[1].status === 'blocked' && capBatch.card.items[1].rule === 'limit.daily_count');
+  && capBatch.card.blockedNow[0].status === 'blocked' && capBatch.card.blockedNow[0].rule === 'limit.daily_count');
 
 // --- Fraud check and the 5-minute approval window ---
 await setPass({ permissions: { transfers: 'act', batches: 'off' }, allowedCurrencies: ['EUR', 'GBP', 'JPY'], dailyCountLimit: 50, monthlyLimitEUR: 5000, autoPay: { elisa: true } });

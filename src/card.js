@@ -71,6 +71,7 @@ export const cardFor = (d) => ({
   note: d.note,
   sentByUser: !!d.sentByUser,
   fraud: d.fraud || null,
+  scam: d.scam || null, // set when Wise blocked a reported scam account
   expiresAt: d.status === 'awaiting_user' ? new Date(Date.parse(d.createdAt) + APPROVAL_TTL_MS).toISOString() : null,
   invoiceId: d.invoiceId || null,
   batchId: d.batchId || null,

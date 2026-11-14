@@ -228,7 +228,7 @@ export function createMcpServer() {
     ].filter(Boolean).join('\n');
     if (batch) return view('batch', batchView(batch), summary);
     if (drafts.length === 1) return view('payment', { ...cardFor(drafts[0]), balanceLeft: state.balances[drafts[0].currency] }, summary);
-    return view('batch', { batchId: null, title: state.chatDrafts[chatDraftId].title, status: 'sent', items: drafts.map(cardFor), sentNow: [] }, summary);
+    return view('batch', { batchId: null, title: state.chatDrafts[chatDraftId].title, status: 'sent', items: drafts.filter((d) => d.status !== 'blocked').map(cardFor), sentNow: [], blockedNow: by('blocked').map(cardFor) }, summary);
   });
 
   tool(mcp, 'confirm_payment', {

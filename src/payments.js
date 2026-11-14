@@ -214,6 +214,9 @@ export function draftPayments({ title, payments }) {
       country: iban ? normIban(iban).slice(0, 2) : null,
       amount: p.amount, currency: p.currency, note: p.note || '',
       outcome: OUTCOME[result.decision], reason: result.reason, fraud,
+      scam: result.rule === 'fraud.reported_account'
+        ? { why: reportedAccount(iban), savedIbanMasked: saved && p.iban && normIban(p.iban) !== normIban(saved.iban) ? maskIban(saved.iban) : null }
+        : null,
     };
   });
   const draft = {

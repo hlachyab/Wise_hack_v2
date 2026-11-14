@@ -86,6 +86,30 @@
   .status.ok { background: var(--bright-green); color: var(--forest); }
   .status.wait { background: var(--warning-soft); color: var(--warning-ink); }
   .status.no { background: var(--negative-soft); color: var(--negative); }
+
+  /* Scam detected by Wise: a red alert inside the card */
+  .scam { margin-top: 16px; border-radius: 20px; overflow: hidden; box-shadow: inset 0 0 0 2px rgba(168, 32, 13, .45); background: #FBEFEC; }
+  .scam-top { background: var(--negative); color: #fff; display: flex; align-items: center; gap: 10px; padding: 12px 16px; font-weight: 700; font-size: 15px; }
+  .scam-top svg { flex-shrink: 0; }
+  .scam-in { padding: 14px 16px 16px; }
+  .scam-line { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .scam-amt { font-size: 28px; line-height: 32px; font-weight: 800; letter-spacing: -0.02em; color: var(--negative); text-decoration: line-through; text-decoration-thickness: 3px; }
+  .scam-stamp { flex-shrink: 0; border: 2px solid var(--negative); color: var(--negative); border-radius: 10px; padding: 3px 10px; font-weight: 800; font-size: 13px; letter-spacing: .05em; transform: rotate(-4deg); }
+  .scam-to { font-size: 14px; color: var(--content-secondary); margin-top: 2px; }
+  .scam-cmp { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; margin-top: 12px; }
+  .scam-cmp div { background: #fff; border-radius: 12px; padding: 8px 12px; min-width: 0; }
+  .scam-cmp small { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--content-secondary); }
+  .scam-cmp b { font-size: 16px; font-variant-numeric: tabular-nums; }
+  .scam-cmp .bad { background: var(--negative-soft); }
+  .scam-cmp .bad b, .scam-cmp .ne { color: var(--negative); }
+  .scam-cmp .ne { font-weight: 800; font-size: 20px; background: none; padding: 0; }
+  .scam ul { margin: 12px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .scam li { position: relative; padding-left: 26px; font-size: 14px; line-height: 20px; color: var(--content-primary); }
+  .scam li::before { content: '✕'; position: absolute; left: 0; top: 1px; width: 18px; height: 18px; border-radius: 50%; background: var(--negative); color: #fff; font-size: 10px; font-weight: 800; display: grid; place-items: center; }
+  .scam-risk { margin-top: 12px; display: flex; justify-content: space-between; font-size: 13px; color: var(--content-secondary); }
+  .scam-risk b { color: var(--negative); }
+  .scam-bar { height: 8px; border-radius: 100px; margin-top: 6px; background: linear-gradient(90deg, #9FE870, #EDC843 45%, var(--negative)); }
+  .scam-safe { margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--forest); }
   .pulse { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulse 1.2s infinite; }
   @keyframes pulse { 50% { opacity: .25; } }
 
@@ -417,8 +441,8 @@
       </div>
       <div class="row">${avatar(s.recipient, s.country)}
         <div class="meta"><b>${esc(s.recipient)}</b><small>${esc(s.ibanMasked || 'New recipient')}${note}</small></div></div>
-      ${stepper(s)}
-      <div class="bullets">${bullets.join('')}</div>
+      ${s.scam ? scamAlert(s) : stepper(s)}
+      <div class="bullets">${s.scam ? '' : bullets.join('')}</div>
       ${action}${foot}`;
     watch(s);
   }
@@ -484,6 +508,26 @@
   const blockedRows = (list) => (list || []).map((d) => `<div class="row" style="margin-top:12px;opacity:.55">${avatar(d.recipient, d.country)}
       <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>✕ Not sent · ${esc(d.ibanMasked || '')}</small></div></div>`).join('');
 
+  // A red "Scam detected by Wise" alert for a payment to an account reported for scams.
+  const SHIELD = '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5 4 5.5v6c0 4.9 3.4 8.9 8 10 4.6-1.1 8-5.1 8-10v-6l-8-3Z" fill="#fff"/><path d="m8.5 8.5 7 7m0-7-7 7" stroke="#A8200D" stroke-width="2.2" stroke-linecap="round"/></svg>';
+  function scamAlert(i) {
+    if (!i || !i.scam) return '';
+    const f = i.fraud || { score: 100, level: 'high', signals: [] };
+    const reasons = [`This account is on Wise's scam list: ${i.scam.why}.`, ...f.signals.filter((x) => !/reported to Wise/.test(x)).map((x) => x + '.')];
+    return `<div class="scam">
+      <div class="scam-top">${SHIELD}Scam detected by Wise</div>
+      <div class="scam-in">
+        <div class="scam-line"><span class="scam-amt">${fmt(i.amount, i.currency)}</span><span class="scam-stamp">BLOCKED</span></div>
+        <div class="scam-to">to “${esc(i.recipient)}” · ${esc(i.ibanMasked || '')}</div>
+        ${i.scam.savedIbanMasked ? `<div class="scam-cmp"><div><small>Your saved account</small><b>${esc(i.scam.savedIbanMasked)}</b></div><span class="ne">≠</span><div class="bad"><small>In this request</small><b>${esc(i.ibanMasked || '')}</b></div></div>` : ''}
+        <ul>${reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
+        <div class="scam-risk"><span>Fraud risk</span><b>${f.score}/100 · ${esc(f.level)}</b></div>
+        <div class="scam-bar"></div>
+        <div class="scam-safe">✓ No money will be sent. Claude can't retry it.</div>
+      </div>
+    </div>`;
+  }
+
   // draft_payments: step 1, a draft in the chat. Nothing has reached Wise yet.
   const OUTCOME = {
     sends_now: ['ok', 'Sends at once'],
@@ -508,11 +552,12 @@
       <div class="hero"><div><div class="amount" style="font-size:30px">${esc(total)}</div><div class="sub-eur">${esc(s.title)}</div></div>
         <span class="status wait">Waiting for your yes</span></div>
       ${rows}
+      ${s.items.map(scamAlert).join('')}
       <div class="bullets">
         ${bullet('warn', '<strong>Reply “yes” to Claude</strong> to send this to Wise. Nothing has moved yet.')}
         ${n('sends_now') ? bullet('pos', `<strong>${n('sends_now')} trusted</strong> payment${n('sends_now') === 1 ? '' : 's'} will be sent at once.`) : ''}
         ${n('needs_you') ? bullet('warn', `<strong>${n('needs_you')}</strong> will wait for your approval in the Wise app${n('needs_you') > 1 ? ', in one request' : ''}.`) : ''}
-        ${s.items.filter((i) => i.outcome === 'blocked').map((i) => bullet('neg', `<strong>${/fraud system/.test(i.reason) ? 'Wise stopped a scam' : 'Blocked'}: ${esc(i.recipient)} ${fmt(i.amount, i.currency)}.</strong> ${esc(i.reason)}`)).join('')}
+        ${s.items.filter((i) => i.outcome === 'blocked' && !i.scam).map((i) => bullet('neg', `<strong>Blocked: ${esc(i.recipient)} ${fmt(i.amount, i.currency)}.</strong> ${esc(i.reason)}`)).join('')}
       </div>${foot}`;
   }
 
@@ -539,6 +584,7 @@
         ${s.items.map((d) => `<div class="row" style="margin-top:12px;${d.status === 'paid' ? '' : 'opacity:.55'}">${avatar(d.recipient, d.country)}
           <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>${{ paid: '✓ Sent', declined: 'Not paid', blocked: 'Blocked', expired: 'Expired', awaiting_user: 'Waiting for you in the Wise app' }[d.status] || esc(d.status)}${d.status === 'paid' ? ' · ' + esc(d.ibanMasked || '') : ''}</small></div></div>`).join('')}
         ${sentRows(s.sentNow)}${blockedRows(s.blockedNow)}
+        ${(s.blockedNow || []).map(scamAlert).join('')}
         <div class="bullets">${s.status === 'sent' ? bullet('pos', '<strong>You said yes</strong>, so Claude sent this to Wise.') : done ? bullet('pos', '<strong>Confirmed with your ID</strong> in the Wise app.') : bullet('pos', '<strong>No money moved.</strong>')}</div>${foot}`;
       return;
     }
@@ -547,8 +593,9 @@
       <div class="hero"><div><div class="amount" style="font-size:30px">${esc(total)}</div><div class="sub-eur">${esc(s.title)}</div></div>
         <span class="status ${waiting.length ? 'wait' : 'no'}">${waiting.length ? `${waiting.length} waiting for you` : 'Blocked'}</span></div>
       ${rows}${sentRows(s.sentNow)}${blockedRows(s.blockedNow)}
+      ${(s.blockedNow || []).map(scamAlert).join('')}
       <div class="bullets">
-        ${(s.blockedNow || []).map((d) => bullet('neg', `<strong>${/fraud system/.test(d.reason) ? 'Wise stopped a scam' : 'Not sent'}: ${esc(d.recipient)} ${fmt(d.amount, d.currency)}.</strong> ${esc(d.reason)}`)).join('')}
+        ${(s.blockedNow || []).filter((d) => !d.scam).map((d) => bullet('neg', `<strong>Not sent: ${esc(d.recipient)} ${fmt(d.amount, d.currency)}.</strong> ${esc(d.reason)}`)).join('')}
         ${s.sentNow.length ? bullet('pos', `<strong>${s.sentNow.length} trusted</strong> payment${s.sentNow.length === 1 ? ' was' : 's were'} sent at once.`) : ''}
         ${bullet('pos', `<strong>One tap pays ${s.sentNow.length ? 'the rest' : 'them all'}</strong>, after your fingerprint, Wise app or SMS code.`)}
         ${s.expiresAt ? bullet('warn', `<strong>Waiting for you</strong> for <span data-expires="${Date.parse(s.expiresAt)}">5:00</span> more.`) : ''}
