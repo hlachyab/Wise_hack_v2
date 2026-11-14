@@ -282,7 +282,11 @@
       : `<div class="bullet ${kind === 'neg' ? 'neg' : ''}"><img data-fb="${kind === 'neg' ? 'neg' : 'pos'}" src="${kind === 'neg' ? ASSETS.neg : ASSETS.pos}" width="20" height="20" alt="" /><p>${html}</p></div>`;
 
   function renderLoading(args) {
-    if (args && args.recipientId) {
+    if (args && Array.isArray(args.payments)) {
+      root.innerHTML = header('grey', 'Draft') + `<div class="skeleton"><span class="pulse"></span> Drafting ${args.payments.length} payment${args.payments.length === 1 ? '' : 's'} for you to check…</div>`;
+    } else if (args && args.chatDraftId) {
+      root.innerHTML = header('grey', 'Payment') + `<div class="skeleton"><span class="pulse"></span> Sending your approved draft to Wise…</div>`;
+    } else if (args && args.recipientId) {
       root.innerHTML = header('grey', 'Payment') + `<div class="skeleton"><span class="pulse"></span> Checking ${esc(fmt(args.amount, args.currency))} to ${esc(args.recipientId)} against your Agent Pass…</div>`;
     }
   }
@@ -332,6 +336,7 @@
     if (s.kind === 'denied') return renderDenied(s);
     if (s.kind === 'invoices') return renderInvoices(s);
     if (s.kind === 'batch') return renderBatch(s);
+    if (s.kind === 'draft') return renderDraft(s);
     if (s.kind === 'recipient_added') return renderRecipientAdded(s);
   }
 
@@ -468,7 +473,43 @@
       rows + `<div class="bullets">${bullet('pos', '<strong>Read-only.</strong> Paying them is checked against your Agent Pass.')}</div>${foot}`;
   }
 
-  // prepare_batch: several payments waiting for one tap.
+  // Trusted payments sent at once in the same request as a batch.
+  const sentRows = (list) => (list || []).map((d) => `<div class="row" style="margin-top:12px">${avatar(d.recipient, d.country)}
+      <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>✓ Sent now (trusted) · ${esc(d.ibanMasked || '')}</small></div></div>`).join('');
+
+  // draft_payments: step 1, a draft in the chat. Nothing has reached Wise yet.
+  const OUTCOME = {
+    sends_now: ['ok', 'Sends at once'],
+    needs_you: ['wait', 'Needs your approval'],
+    blocked: ['no', 'Blocked'],
+  };
+  function renderDraft(s) {
+    clearInterval(pollTimer);
+    const ok = s.items.filter((i) => i.outcome !== 'blocked');
+    const totals = {};
+    ok.forEach((i) => { totals[i.currency] = (totals[i.currency] || 0) + i.amount; });
+    const total = Object.entries(totals).map(([c, a]) => fmt(Math.round(a * 100) / 100, c)).join(' + ') || '–';
+    const n = (o) => s.items.filter((i) => i.outcome === o).length;
+    const rows = s.items.map((i) => {
+      const [cls, label] = OUTCOME[i.outcome] || ['wait', i.outcome];
+      return `<div class="row" style="margin-top:12px;${i.outcome === 'blocked' ? 'opacity:.55' : ''}">${avatar(i.recipient, i.country)}
+        <div class="meta"><b>${esc(i.recipient)} · ${fmt(i.amount, i.currency)}</b><small>${esc(i.ibanMasked || 'New recipient')} · ${esc(i.reason)}</small></div>
+        <span class="status ${cls}" style="margin-left:auto;flex-shrink:0">${label}</span></div>`;
+    }).join('');
+    root.innerHTML = header('grey', 'Draft') + `
+      <div class="eyebrow">Draft · not sent to Wise yet</div>
+      <div class="hero"><div><div class="amount" style="font-size:30px">${esc(total)}</div><div class="sub-eur">${esc(s.title)}</div></div>
+        <span class="status wait">Waiting for your yes</span></div>
+      ${rows}
+      <div class="bullets">
+        ${bullet('warn', '<strong>Reply “yes” to Claude</strong> to send this to Wise. Nothing has moved yet.')}
+        ${n('sends_now') ? bullet('pos', `<strong>${n('sends_now')} trusted</strong> payment${n('sends_now') === 1 ? '' : 's'} will be sent at once.`) : ''}
+        ${n('needs_you') ? bullet('warn', `<strong>${n('needs_you')}</strong> will wait for your approval in the Wise app${n('needs_you') > 1 ? ', in one request' : ''}.`) : ''}
+        ${n('blocked') ? bullet('neg', `<strong>${n('blocked')} blocked</strong> by your Agent Pass. They won't be sent.`) : ''}
+      </div>${foot}`;
+  }
+
+  // send_to_wise: payments waiting for one tap, plus the trusted ones sent with them.
   function renderBatch(s) {
     const waiting = s.items.filter((d) => d.status === 'awaiting_user');
     const totals = {};
@@ -477,28 +518,31 @@
     const rows = s.items.map((d) => `<div class="row" style="margin-top:12px;${d.status === 'blocked' ? 'opacity:.55' : ''}">${avatar(d.recipient, d.country)}
         <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>${d.status === 'blocked' ? 'Blocked: ' : ''}${esc(d.ibanMasked || 'New recipient')} · ${esc(d.reason)}</small></div></div>`).join('');
     const warn = s.items.some((d) => (d.warnings || []).length || /^hard_stop/.test(d.rule));
-    const done = s.status === 'paid', gone = s.status === 'declined' || s.status === 'expired';
+    s.sentNow = s.sentNow || [];
+    const done = s.status === 'paid' || s.status === 'sent', gone = s.status === 'declined' || s.status === 'expired';
     const paid = s.items.filter((d) => d.status === 'paid');
     const paidTotals = {};
     paid.forEach((d) => { paidTotals[d.currency] = (paidTotals[d.currency] || 0) + d.amount; });
     if (done || gone) {
       const sum = Object.entries(paidTotals).map(([c, a]) => fmt(Math.round(a * 100) / 100, c)).join(' + ') || '–';
       root.innerHTML = header(done ? 'green' : 'red', 'Batch') + `
-        <div class="eyebrow">${done ? 'You paid' : s.status === 'expired' ? 'Not answered in time' : 'You declined'}</div>
+        <div class="eyebrow">${s.status === 'sent' ? 'Sent to Wise' : done ? 'You paid' : s.status === 'expired' ? 'Not answered in time' : 'You declined'}</div>
         <div class="hero"><div><div class="amount" style="font-size:30px">${done ? esc(sum) : '–'}</div><div class="sub-eur">${esc(s.title)}</div></div>
-          <span class="status ${done ? 'ok' : 'no'}">${done ? `✓ ${paid.length} sent` : s.status === 'expired' ? '⏱ Expired' : '✕ Declined'}</span></div>
+          <span class="status ${done ? 'ok' : 'no'}">${done ? `✓ ${paid.length + s.sentNow.length} sent` : s.status === 'expired' ? '⏱ Expired' : '✕ Declined'}</span></div>
         ${s.items.map((d) => `<div class="row" style="margin-top:12px;${d.status === 'paid' ? '' : 'opacity:.55'}">${avatar(d.recipient, d.country)}
-          <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>${{ paid: '✓ Sent', declined: 'Not paid', blocked: 'Blocked', expired: 'Expired' }[d.status] || esc(d.status)}${d.status === 'paid' ? ' · ' + esc(d.ibanMasked || '') : ''}</small></div></div>`).join('')}
-        <div class="bullets">${done ? bullet('pos', '<strong>Confirmed with your ID</strong> in the Wise app.') : bullet('pos', '<strong>No money moved.</strong>')}</div>${foot}`;
+          <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>${{ paid: '✓ Sent', declined: 'Not paid', blocked: 'Blocked', expired: 'Expired', awaiting_user: 'Waiting for you in the Wise app' }[d.status] || esc(d.status)}${d.status === 'paid' ? ' · ' + esc(d.ibanMasked || '') : ''}</small></div></div>`).join('')}
+        ${sentRows(s.sentNow)}
+        <div class="bullets">${s.status === 'sent' ? bullet('pos', '<strong>You said yes</strong>, so Claude sent this to Wise.') : done ? bullet('pos', '<strong>Confirmed with your ID</strong> in the Wise app.') : bullet('pos', '<strong>No money moved.</strong>')}</div>${foot}`;
       return;
     }
     root.innerHTML = header(waiting.length ? 'yellow' : 'red', 'Batch') + `
-      <div class="eyebrow">Claude prepared ${s.items.length} payments</div>
+      <div class="eyebrow">Claude sent ${s.items.length + s.sentNow.length} payments to Wise</div>
       <div class="hero"><div><div class="amount" style="font-size:30px">${esc(total)}</div><div class="sub-eur">${esc(s.title)}</div></div>
         <span class="status ${waiting.length ? 'wait' : 'no'}">${waiting.length ? `${waiting.length} waiting for you` : 'Blocked'}</span></div>
-      ${rows}
+      ${rows}${sentRows(s.sentNow)}
       <div class="bullets">
-        ${bullet('pos', '<strong>One tap pays them all</strong>, after your fingerprint, Wise app or SMS code.')}
+        ${s.sentNow.length ? bullet('pos', `<strong>${s.sentNow.length} trusted</strong> payment${s.sentNow.length === 1 ? ' was' : 's were'} sent at once.`) : ''}
+        ${bullet('pos', `<strong>One tap pays ${s.sentNow.length ? 'the rest' : 'them all'}</strong>, after your fingerprint, Wise app or SMS code.`)}
         ${s.expiresAt ? bullet('warn', `<strong>Waiting for you</strong> for <span data-expires="${Date.parse(s.expiresAt)}">5:00</span> more.`) : ''}
         ${s.items.some((d) => d.fraud && d.fraud.level !== 'low') ? bullet('warn', '<strong>Fraud check</strong> flagged some payments. Check them in the Wise app.') : ''}
         ${warn ? bullet('warn', 'Some payments have new or changed bank details. They start unticked.') : ''}

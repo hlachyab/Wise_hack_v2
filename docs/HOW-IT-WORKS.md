@@ -103,17 +103,17 @@ pass: {
 | Recipients | none, view, **add** | `list_recipients`, `add_recipient` (needs Add) |
 | Exchange rates | none, view | `get_quote` |
 | Email invoices | none, view | `check_invoices` |
-| Transfers | none, view, **draft**, **act** | `prepare_payment`, `confirm_payment`, `payment_status`, `get_pending_approvals` |
-| Batch payments | off, **on** | `prepare_batch` |
+| Transfers | none, view, **draft**, **act** | `send_to_wise`, `confirm_payment`, `payment_status`, `get_pending_approvals` (`draft_payments` only shows a preview) |
+| Batch payments | off, **on** | `send_to_wise` groups waiting payments into one request |
 
 What each Transfers level means:
 
-| Transfers | `prepare_payment` | `confirm_payment` |
+| Transfers | after your yes, `send_to_wise` | |
 |---|---|---|
 | `none` | blocked | blocked |
 | `view` | blocked: **the wall** | blocked |
-| `draft` | a draft that **waits for you**, even within the limits | nothing to send |
-| `act` | `ready` within the limits, otherwise waits for you | sends `ready` drafts |
+| `draft` | a payment that **waits for you**, even within the limits | |
+| `act` | **sent at once** within the limits (trusted), otherwise waits for you | |
 
 **Revoke** is separate from the levels: it switches everything off, reads included. **Restore** brings back the levels you had and also renews an expired pass. **Expiry** works the same way: when `expiresAt` passes, everything is refused until you renew.
 
@@ -137,28 +137,34 @@ A fresh demo starts **disconnected**, like a new user of Wise's MCP:
 
 Here is *"send Jana €300"* with Transfers on Act, from start to finish.
 
-1. **Claude calls `prepare_payment`** with `recipientId: "jana"`, `amount: 300`, `currency: "EUR"`.
-2. **`src/mcp.js`** receives the call. Every tool handler is wrapped in `tx()`, so the current state is loaded from `.wise-state.json` first.
-3. **`preparePayment()`** in `src/payments.js` calls `decide()` in `src/rules.js`. Connected, not revoked or expired, Transfers is Act, Jana is saved, the IBAN matches, EUR is allowed, but €300 is above the €200 limit, so the decision is `needs_approval` (`limit.per_payment`).
-4. **The fraud check** (`assessFraud()`) scores the request. It only matters when the rules said *allow*; here it is shown alongside.
-5. A **draft** is saved with status `awaiting_user`, and an activity entry is added. `tx()` saves the state file.
-6. **The tool returns** two things:
+1. **Claude calls `draft_payments`** with `payments: [{ recipientId: "jana", amount: 300, currency: "EUR" }]`. `draftPayments()` runs the same checks as below, but only to preview them: it saves a **chat draft** (`state.chatDrafts`, id `chd_…`) and returns a `draft` card, *"Needs your approval"*. Nothing reaches Wise.
+2. **Claude asks** *"Shall I send this to Wise?"* and stops. The tool text tells it to wait for a clear yes and never to call `send_to_wise` in the same turn.
+3. **You reply yes. Claude calls `send_to_wise`** with the `chatDraftId`. `sendToWise()` refuses an unknown draft (404), one already sent (409) or one older than 10 minutes (410), so Claude can only send exactly what you saw, once. Every tool handler is wrapped in `tx()`, so the current state is loaded from `.wise-state.json` first.
+4. **`preparePayment()`** in `src/payments.js` calls `decide()` in `src/rules.js`. Connected, not revoked or expired, Transfers is Act, Jana is saved, the IBAN matches, EUR is allowed, but €300 is above the €200 limit, so the decision is `needs_approval` (`limit.per_payment`).
+5. **The fraud check** (`assessFraud()`) scores the request. It only matters when the rules said *allow*; here it is shown alongside. The decision is checked again here, at send time, so a pass changed after the draft still counts.
+6. A **draft** is saved with status `awaiting_user`, and an activity entry is added. `tx()` saves the state file.
+7. **The tool returns** two things:
    - `content`: text for Claude, including *"Next: Tell them to approve or decline it in the Wise app within 5 minutes; approving sends it. You cannot approve it."*
    - `structuredContent`: data for the card, `{ kind: "payment", status: "awaiting_user", … }`.
-7. **Claude Desktop renders the card** in the chat: *Waiting for you*, with a countdown and a button to the Wise app.
-8. **The web page**, which polls `/api/state` every second, shows an approval card and a **pop-up** in the corner (plus a system notification if you turned them on with the bell).
-9. **You click Approve.** The page first asks for your ID (mock fingerprint, Wise app or SMS code), then calls `POST /api/drafts/:id/approve`. `approveDraft()` checks the draft is still waiting, then `send()` moves the (mock) money, marks the draft `paid` with `sentByUser: true`, and logs it.
-10. **The chat card notices.** While a payment is `awaiting_user`, the card calls `payment_status` every 2 seconds through the host. It sees `paid` and re-renders as *You sent*.
-11. **If Claude calls `confirm_payment` anyway**, it gets *"Already sent"*, not an error, and no second payment.
+8. **Claude Desktop renders the card** in the chat: *Waiting for you*, with a countdown and a button to the Wise app.
+9. **The web page**, which polls `/api/state` every second, shows an approval card and a **pop-up** in the corner (plus a system notification if you turned them on with the bell).
+10. **You click Approve.** The page first asks for your ID (mock fingerprint, Wise app or SMS code), then calls `POST /api/drafts/:id/approve`. `approveDraft()` checks the draft is still waiting, then `send()` moves the (mock) money, marks the draft `paid` with `sentByUser: true`, and logs it.
+11. **The chat card notices.** While a payment is `awaiting_user`, the card calls `payment_status` every 2 seconds through the host. It sees `paid` and re-renders as *You sent*.
+12. **If Claude calls `confirm_payment` anyway**, it gets *"Already sent"*, not an error, and no second payment.
 
-Elisa's €25 takes the short path: the rules allow it, the fraud check says low risk, the draft is `ready`, and Claude calls `confirm_payment` straight away.
+Elisa's €25 takes the short path: the draft says *Sends at once*; after your yes, the rules allow it, the fraud check says low risk, and `sendToWise()` sends it straight away (you already said yes in the chat).
+
+**Several payments, or one by one.** Claude puts all the payments you asked for into one `draft_payments` call. After your yes, trusted ones are sent at once; the ones that need you go into **one batch** (when Batch payments is on), listed in `batch.sentWith` next to the trusted ones sent with it. If Claude asks for waiting payments one at a time, `groupWaiting()` joins any that arrive within 2 minutes into the same batch (activity rule `batch.grouped`), so you still answer once.
 
 ## 6. Draft and batch lifecycle
 
-Every payment starts as a **draft**. Its `status` is the single source of truth for what may happen next.
+Every payment starts as a **chat draft** that only you and Claude see. After your yes it becomes a payment in Wise. Its `status` is the single source of truth for what may happen next.
 
 ```
-prepare_payment ─┬─► ready ───────── confirm_payment (Claude) ──┐
+draft_payments ─► chat draft ─► you say yes ─► send_to_wise
+                                                   │
+                 ┌─────────────────────────────────┘
+                 ├─► ready ──── sent at once (trusted) ──────────┐
                  │                                              ├─► paid
                  ├─► awaiting_user ─┬─ Approve + ID check (you) ┘
                  │                  ├─ Decline (you) ─► declined
@@ -168,7 +174,7 @@ prepare_payment ─┬─► ready ───────── confirm_payment (
 
 | Status | Meaning | Who can move it on |
 |---|---|---|
-| `ready` | Allowed by the pass | Claude, with `confirm_payment` |
+| `ready` | Allowed by the pass | `send_to_wise` sends it at once; `confirm_payment` also can |
 | `awaiting_user` | Needs you | **Only you**, in the web app. Approving sends it. |
 | `declined` | You said no | Nobody. Final. |
 | `expired` | You didn't answer within 5 minutes | Nobody. Final. Nothing was sent. |
@@ -177,11 +183,11 @@ prepare_payment ─┬─► ready ───────── confirm_payment (
 
 **Expiry** happens in `expireStale()` (`src/state.js`), which runs on every load, so no timer is needed.
 
-**Re-check at send time.** The pass can change between prepare and confirm, so `confirmPayment()` runs `decide()` again before sending a `ready` draft. If you revoked access or set Transfers to View it becomes `blocked`; if it now needs approval it becomes `awaiting_user`.
+**Re-check at send time.** The pass can change between the chat draft and your yes, so `send_to_wise` checks everything again; and `confirmPayment()` runs `decide()` again before sending a `ready` draft. If you revoked access or set Transfers to View it becomes `blocked`; if it now needs approval it becomes `awaiting_user`.
 
 **Your approval skips the soft rules, not the hard caps.** When you approve, it's your own decision, so the per-payment limit and "always ask" don't apply. The monthly and daily limits still do: if sending would go over them, the approve call returns an error and nothing moves. The same happens if there isn't enough balance.
 
-**Batches** group up to 10 drafts. A batch is `awaiting_user` until you pay it (`paid`), decline it (`declined`) or let it expire (`expired`). Inside a batch, even payments the pass would allow wait for your one tap (rule `batch.one_tap`), so you see the whole list once. When you pay, you can untick any payment; unticked ones are declined. The balances are checked first, so it pays all the ticked ones or none.
+**Batches** group the payments that wait for you. A batch is `awaiting_user` until you pay it (`paid`), decline it (`declined`) or let it expire (`expired`); its payments expire with it. Trusted payments are not put in a batch: you already said yes to them in the chat, so they are sent at once and listed in `batch.sentWith`. When you pay, you can untick any payment; unticked ones are declined. The balances are checked first, so it pays all the ticked ones or none.
 
 ## 7. The rules engine
 
@@ -203,14 +209,13 @@ prepare_payment ─┬─► ready ───────── confirm_payment (
 | 8 | Transfers is Draft | needs approval | `pass.draft` |
 | 9 | Otherwise | allow | `within_pass` |
 
-After `decide()`, `preparePayment()` applies two more steps that can only make a decision stricter:
+After `decide()`, one more step can only make a decision stricter:
 
 - **`fraud.review`**: the fraud check scored an *allowed* request medium or high risk (section 8).
-- **`batch.one_tap`**: an *allowed* payment inside a batch waits for the batch's one tap.
 
 The design principle: **within the rules the assistant acts; a bigger single payment asks you; hard settings and hard caps block.**
 
-**Hard caps.** `hardCapReason()` checks the monthly limit and the daily payment count. They are hard caps: `decide()` blocks anything over them, and `approveDraft()` / `approveBatch()` refuse to send over them too, so not even your approval gets past them (the web app shows a red *Not sent* pop-up with a *Change limits* button). Every payment sent through the pass counts, whether Claude sent it or you approved it. In a batch, each payment is checked together with the ones before it, so a batch can't get around the caps.
+**Hard caps.** `hardCapReason()` checks the monthly limit and the daily payment count. They are hard caps: `decide()` blocks anything over them, and `approveDraft()` / `approveBatch()` refuse to send over them too, so not even your approval gets past them (the web app shows a red *Not sent* pop-up with a *Change limits* button). Every payment sent through the pass counts, whether Claude sent it or you approved it. In one request, each payment is checked together with the ones before it, so asking for several at once can't get around the caps.
 
 Some details:
 
@@ -243,7 +248,7 @@ With the **Pay my bills** preset (Email invoices: View, Recipients: Add, Batch p
 
 1. **`check_invoices`** returns the unpaid invoices from the mock inbox in `state.inbox`: vendor, amount, due date, IBAN, reference, and the `recipientId` if the vendor is saved.
 2. **`add_recipient`** lets Claude save a vendor that isn't a recipient yet (Nordic Cloud OÜ). New recipients are marked *Added by Claude* and always ask before Claude pays them (`autoPay: false`). Claude can't change saved bank details.
-3. **`prepare_batch`** sends all the payments as one request. Each is checked on its own; blocked ones are left out. Payments that pass `invoiceId` mark that invoice paid when they are sent.
+3. **`draft_payments`** shows all the payments as one draft in the chat, and Claude asks you. After your yes, **`send_to_wise`** sends trusted ones at once and puts the rest in one batch; blocked ones are left out. Payments that pass `invoiceId` mark that invoice paid when they are sent.
 4. **In the Wise app**, the batch card lists every payment with where it goes and why. Risky ones (changed bank details, injection text, high fraud risk) start **unticked**. You tap **Pay N with one tap**, confirm with your ID, and they're sent together.
 
 ## 10. Why Claude can't approve: the safety model
@@ -297,8 +302,9 @@ The protections are layered, and each layer works even if the one above it fails
 | `recipients` | `list_recipients` | Saved recipients with masked IBANs |
 | `quote` | `get_quote` | Recipient gets, fee, you send, mid-market rate |
 | `invoices` | `check_invoices` | Unpaid invoices from the inbox |
-| `payment` | `prepare_payment`, `confirm_payment`, `payment_status` | Amount, status, recipient, stepper, reasons, fraud check, countdown |
-| `batch` | `prepare_batch`, `payment_status` with `batchId` | Every payment in the batch and its status |
+| `draft` | `draft_payments` | The draft: every payment with *Sends at once*, *Needs your approval* or *Blocked*, and *Reply yes to send this to Wise* |
+| `payment` | `send_to_wise` (one payment), `confirm_payment`, `payment_status` | Amount, status, recipient, stepper, reasons, fraud check, countdown |
+| `batch` | `send_to_wise` (several payments), `payment_status` with `batchId` | Every payment in the batch and its status, plus the trusted ones sent at once |
 | `approvals` | `get_pending_approvals` | What's waiting for you |
 | `recipient_added` | `add_recipient` | The new recipient |
 | `denied` | Any refused call | "No access" and why, or "Connect your Wise account" |
@@ -360,7 +366,7 @@ The protections are layered, and each layer works even if the one above it fails
 | `src/mcp.js` | `createMcpServer()`: server instructions for Claude, the 10 tools with their zod input schemas and descriptions, `readBlocked()` and `notConnected()`, and the `text()` / `view()` / `denied()` result helpers. The `tool()` helper adds the card `_meta`, the `tx()` wrapper and the out-of-date guard. |
 | `src/card.js` | The MCP Apps resource: URI, MIME type, UI metadata, asset embedding, and `cardFor(draft)`. |
 | `src/web.js` | `createWebApp()` serves `public/` and the JSON API (listed at the top of the file). `action()` wraps each POST: load, run, save, reply, and turn an `ActionError` into a 400/404/409. `startWebServer()` handles the busy-port retry. |
-| `src/payments.js` | All actions. Claude's side: `getQuote`, `preparePayment`, `confirmPayment`, `prepareBatch`, `addRecipient`. Your side: `approveDraft`, `declineDraft`, `approveBatch`, `declineBatch`, `updatePass`, `connectClaude`, `revokeAccess`, `restoreAccess`, `resetDemo`. `send()` is the one place money moves. |
+| `src/payments.js` | All actions. Claude's side: `getQuote`, `draftPayments`, `sendToWise` (with `preparePayment` and `groupWaiting`), `confirmPayment`, `addRecipient`. Your side: `approveDraft`, `declineDraft`, `approveBatch`, `declineBatch`, `updatePass`, `connectClaude`, `revokeAccess`, `restoreAccess`, `resetDemo`. `send()` is the one place money moves. |
 | `src/rules.js` | `decide()` (the rules), `STATUS_FOR` (decision → status), the fixed refusals, `looksLikeInjection()` and `injectionWarnings()`. |
 | `src/fraud.js` | `assessFraud()`: the risk score and its signals. |
 | `src/state.js` | `createInitialState()` (mock data and default pass), `PERMISSION_LEVELS`, `EXPIRY_MS`, `APPROVAL_TTL_MS`, `state`, `load` / `save` / `resetState`, `tx()`, `expireStale()`, `outdated`, and `addActivity()` (newest first, at most 100 entries). |

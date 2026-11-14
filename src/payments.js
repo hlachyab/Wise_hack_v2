@@ -1,7 +1,11 @@
 // Payment actions. The MCP tools (Claude's side) and the web API (the user's side) both
 // call these, so the rules are applied in exactly one place.
 //
-// Draft lifecycle:
+// Every payment takes two steps. First Claude shows the user a draft in the chat
+// (draftPayments, nothing reaches Wise). Only after the user says yes does Claude send it to Wise
+// (sendToWise), which creates the payments below. Trusted ones are sent at once.
+//
+// Payment lifecycle in Wise:
 //   prepare ─┬─> ready ──────── confirm_payment (Claude) ──┐
 //            ├─> awaiting_user ─┬─ Approve (user) ─────────┴─> paid
 //            │                  ├─ Decline (user) ─> declined
@@ -10,8 +14,8 @@
 //   confirm_payment re-checks the pass at send time, so a "ready" draft can still move to
 //   awaiting_user or blocked if the user changed their pass in the meantime.
 //
-// A batch is a group of drafts the user confirms with one tap: awaiting_user -> paid | declined
-// | expired. Inside a batch even "allowed" payments wait for that tap (rule batch.one_tap).
+// A batch groups the waiting payments of one request (and of requests in the 2 minutes before)
+// so the user confirms them with one tap: awaiting_user -> paid | declined | expired.
 //
 // Decision order for a new draft: the Agent Pass rules (rules.js) first, then Wise's fraud check
 // (fraud.js), which can only make a decision stricter, never looser.
@@ -59,28 +63,33 @@ export function getQuote({ amount, fromCurrency, toCurrency }) {
 const PREPARED_TEXT = { allow: 'ready to send', needs_approval: 'waiting for you', block: 'blocked' };
 
 /**
- * Create a draft and check it against the Agent Pass. Never moves money.
- * batchId: part of a batch, so anything the pass allows waits for the user's one-tap "Pay all".
- * invoiceId: the inbox invoice this pays; it is marked paid when the draft is sent.
- * pending: { eur, count } of earlier payments in the same batch, for the hard caps.
+ * What Wise would decide for one payment: the Agent Pass rules, then the fraud check, which can
+ * only make it stricter. pending = { eur, count } of earlier payments in the same request, so the
+ * hard caps cover the whole request. Changes nothing.
  */
-export function preparePayment({ recipientId, amount, currency, iban, note, invoiceId, batchId }, pending = { eur: 0, count: 0 }) {
+function evaluate({ recipientId, amount, currency, iban, note }, pending = { eur: 0, count: 0 }) {
   const id = String(recipientId).trim().toLowerCase();
   const saved = state.recipients[id];
   let result = decide({ recipientId: id, amount, currency, iban, pendingEUR: pending.eur, pendingCount: pending.count });
-  // Extra layer: Wise's fraud check. A suspicious request never goes through automatically.
   const fraud = result.decision === 'block' ? null : assessFraud({ recipientId: id, amount, currency, iban, note });
   if (fraud && fraud.level !== 'low' && result.decision === 'allow') {
     result = { decision: 'needs_approval', rule: 'fraud.review', reason: `Wise's fraud check flagged this request (${fraud.level} risk), so you need to check it yourself.` };
   }
-  if (batchId && result.decision === 'allow') {
-    result = { decision: 'needs_approval', rule: 'batch.one_tap', reason: `${result.reason} Part of a batch, so you confirm it together with the others.` };
-  }
+  return { id, saved, result, fraud };
+}
+
+/**
+ * Create a payment in Wise and check it against the Agent Pass. Never moves money by itself.
+ * invoiceId: the inbox invoice this pays; it is marked paid when the payment is sent.
+ */
+export function preparePayment(payment, pending) {
+  const { amount, currency, iban, note, invoiceId } = payment;
+  const { id, saved, result, fraud } = evaluate(payment, pending);
   const draft = {
     id: `drf_${randomUUID().slice(0, 8)}`,
     createdAt: new Date().toISOString(),
     recipientId: id,
-    recipientName: saved ? saved.name : recipientId,
+    recipientName: saved ? saved.name : payment.recipientId,
     iban: iban ? normIban(iban) : saved ? normIban(saved.iban) : null,
     ibanMasked: maskIban(iban || saved?.iban),
     amount,
@@ -94,10 +103,9 @@ export function preparePayment({ recipientId, amount, currency, iban, note, invo
     warnings: injectionWarnings(note),
     fraud,
     invoiceId: invoiceId && state.inbox.some((i) => i.id === invoiceId) ? invoiceId : null,
-    batchId: batchId || null,
+    batchId: null, // set by groupWaiting() when it joins a batch
   };
   state.drafts[draft.id] = draft;
-  if (batchId) return draft; // the batch logs one activity entry for all its payments
   addActivity({
     kind: 'prepared',
     draftId: draft.id,
@@ -170,41 +178,104 @@ export function confirmPayment(draftId) {
   return error ? { ok: false, error, draft: d } : { ok: true, draft: d };
 }
 
+// ---------------------------------------------------------------------------
+// Two steps for every payment: a draft in the chat, then the request to Wise
+// ---------------------------------------------------------------------------
+
 const MAX_BATCH = 10;
+/** A chat draft can be sent to Wise once, within this time. */
+export const CHAT_DRAFT_TTL_MS = 10 * 60 * 1000;
+/** Waiting payments Claude sends within this window are grouped into one request. */
+const GROUP_WINDOW_MS = 2 * 60 * 1000;
+
+const OUTCOME = { allow: 'sends_now', needs_approval: 'needs_you', block: 'blocked' };
 
 /**
- * Several payments as one request. Each is checked against the pass on its own; blocked ones
- * are left out, everything else waits for the user to confirm all of them with one tap.
+ * Step 1 (draft_payments): what Claude shows the user in the chat before anything reaches Wise.
+ * Each payment gets a preview of what Wise would do: sent at once (trusted), needs your approval,
+ * or blocked. Nothing appears in the Wise app; only the draft is kept, so send_to_wise sends
+ * exactly what the user saw.
  */
-export function prepareBatch({ title, payments }) {
-  const batch = {
-    id: `bat_${randomUUID().slice(0, 8)}`,
+export function draftPayments({ title, payments }) {
+  const list = payments.slice(0, MAX_BATCH);
+  const pending = { eur: 0, count: 0 };
+  const items = list.map((p) => {
+    const { id, saved, result, fraud } = evaluate(p, pending);
+    if (result.decision !== 'block') { pending.eur += toEUR(p.amount, p.currency) || 0; pending.count += 1; }
+    const iban = p.iban || saved?.iban;
+    return {
+      recipientId: id, recipient: saved ? saved.name : p.recipientId, ibanMasked: maskIban(iban),
+      country: iban ? normIban(iban).slice(0, 2) : null,
+      amount: p.amount, currency: p.currency, note: p.note || '',
+      outcome: OUTCOME[result.decision], reason: result.reason, fraud,
+    };
+  });
+  const draft = {
+    id: `chd_${randomUUID().slice(0, 8)}`,
     createdAt: new Date().toISOString(),
-    title: String(title || 'Payments').slice(0, 80),
-    draftIds: [],
-    status: 'awaiting_user',
+    title: String(title || (list.length > 1 ? 'Payments from Claude' : 'Payment')).slice(0, 80),
+    payments: list,
+    sent: false,
   };
-  const pending = { eur: 0, count: 0 }; // what the batch already holds, so the caps cover the whole batch
-  for (const p of payments.slice(0, MAX_BATCH)) {
-    const d = preparePayment({ ...p, batchId: batch.id }, pending);
-    batch.draftIds.push(d.id);
-    if (d.status === 'awaiting_user') { pending.eur += d.amountEUR || 0; pending.count += 1; }
-  }
-  const drafts = batch.draftIds.map((id) => state.drafts[id]);
+  state.chatDrafts[draft.id] = draft;
+  return { draft, items };
+}
+
+/**
+ * Step 2 (send_to_wise), only after the user said yes in the chat. Sends the request to Wise:
+ * trusted payments (allowed by the pass, low fraud risk) are sent at once; the others wait for
+ * the user, grouped into one batch when batch payments are on; blocked ones go nowhere.
+ * Returns { drafts, batch }, or throws an ActionError.
+ */
+export function sendToWise(chatDraftId) {
+  const cd = state.chatDrafts[chatDraftId];
+  if (!cd) throw new ActionError(404, `No chat draft ${chatDraftId}. Call draft_payments first and show it to the user.`);
+  if (cd.sent) throw new ActionError(409, 'This draft was already sent to Wise. Do not send it again.');
+  if (Date.now() - Date.parse(cd.createdAt) > CHAT_DRAFT_TTL_MS) throw new ActionError(410, 'This draft is older than 10 minutes. Draft it again and ask the user again.');
+  cd.sent = true;
+  const pending = { eur: 0, count: 0 };
+  const drafts = cd.payments.map((p) => {
+    const d = preparePayment(p, pending);
+    if (d.status !== 'blocked') { pending.eur += d.amountEUR || 0; pending.count += 1; }
+    return d;
+  });
+  for (const d of drafts) if (d.status === 'ready') confirmPayment(d.id); // trusted, and the user already said yes
   const waiting = drafts.filter((d) => d.status === 'awaiting_user');
-  if (!waiting.length) batch.status = 'blocked';
-  state.batches[batch.id] = batch;
-  const totalEUR = round2(waiting.reduce((t, d) => t + (d.amountEUR || 0), 0));
+  const batch = state.pass.permissions.batches === 'on' ? groupWaiting(waiting, cd.title) : null;
+  if (batch) batch.sentWith = drafts.filter((d) => d.status === 'paid').map((d) => d.id);
+  log(`sent ${cd.id} to Wise: ${drafts.map((d) => d.status).join(', ')}${batch ? ` (batch ${batch.id})` : ''}`);
+  return { drafts, batch };
+}
+
+/**
+ * Group waiting payments into one request the user confirms with one tap: the new ones, plus
+ * any single payment Claude asked for in the last 2 minutes, or an open group from then.
+ * So asking for payments one by one still ends up as one request. Returns the batch, or null
+ * when there is only one payment waiting.
+ */
+function groupWaiting(newDrafts, title) {
+  const since = Date.now() - GROUP_WINDOW_MS;
+  const recent = (x) => Date.parse(x.createdAt) > since;
+  let b = Object.values(state.batches).find((x) => x.auto && x.status === 'awaiting_user' && recent(x));
+  const ids = new Set(newDrafts.map((d) => d.id));
+  const lone = Object.values(state.drafts).filter((d) => !ids.has(d.id) && d.status === 'awaiting_user' && !d.batchId && recent(d));
+  const join = [...lone, ...newDrafts];
+  if (!join.length || (!b && join.length < 2)) return null;
+  if (!b) {
+    b = { id: `bat_${randomUUID().slice(0, 8)}`, title, draftIds: [], status: 'awaiting_user', auto: true };
+    state.batches[b.id] = b;
+  }
+  b.createdAt = new Date().toISOString(); // the whole group gets a fresh 5 minutes
+  for (const d of join) { d.batchId = b.id; b.draftIds.push(d.id); }
+  const all = b.draftIds.map((id) => state.drafts[id]);
   addActivity({
     kind: 'prepared',
-    batchId: batch.id,
-    decision: waiting.length ? 'needs_approval' : 'block',
-    rule: 'batch.one_tap',
-    text: `Claude prepared a batch "${batch.title}": ${waiting.length} payment${waiting.length === 1 ? '' : 's'} (about ${fmt(totalEUR, 'EUR')}) waiting for one tap` +
-      (drafts.length > waiting.length ? `, ${drafts.length - waiting.length} blocked.` : '.'),
+    batchId: b.id,
+    decision: 'needs_approval',
+    rule: 'batch.grouped',
+    text: `Claude asked for ${all.length} payments, so Wise put them in one request: ${all.map((d) => `${d.recipientName} ${fmt(d.amount, d.currency)}`).join(', ')}. You confirm them with one tap.`,
   });
-  log(`batch ${batch.id}: ${waiting.length}/${drafts.length} waiting`);
-  return { batch, drafts };
+  return b;
 }
 
 /** Plain IBAN check: 2 letters, 2 digits, then 10-30 letters/digits. */
@@ -300,7 +371,7 @@ export function declineBatch(id) {
   if (b.status !== 'awaiting_user') throw new ActionError(409, `Batch is ${b.status}`);
   for (const d of b.draftIds.map((x) => state.drafts[x])) if (d.status === 'awaiting_user') d.status = 'declined';
   b.status = 'declined';
-  addActivity({ kind: 'declined', batchId: id, decision: 'declined', rule: 'batch.one_tap', text: `You declined the batch "${b.title}". Claude cannot send these payments.` });
+  addActivity({ kind: 'declined', batchId: id, decision: 'declined', rule: 'batch.declined', text: `You declined the batch "${b.title}". Claude cannot send these payments.` });
 }
 
 const LEVEL_NAMES = { none: 'None', view: 'View', draft: 'Draft', act: 'Act' };

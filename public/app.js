@@ -940,7 +940,7 @@ function render(s) {
 
 let lastKey = '';
 
-const API_VERSION = 6; // must match STATE_VERSION in src/state.js
+const API_VERSION = 7; // must match STATE_VERSION in src/state.js
 
 async function poll() {
   let s;

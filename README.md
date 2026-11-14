@@ -160,7 +160,9 @@ One-tap presets (*Just looking*, *Drafts for me*, *Pay my bills*) fill everythin
 
 > Pay Elisa €25 for the internet and send Jana €300.
 
-- **Elisa €25**: within the rules, so it's **sent**. The card shows *Sent*; the balance and the monthly bar move.
+Every payment takes **two steps**, even to a trusted recipient. First Claude shows a **draft** in the chat (`draft_payments`): Elisa *Sends at once*, Jana *Needs your approval*. Nothing has reached Wise yet. Claude asks *"Shall I send this to Wise?"* and waits. Reply **yes**, and only then does Claude call `send_to_wise`:
+
+- **Elisa €25**: within the rules and trusted, so it's **sent**. The card shows *Sent*; the balance and the monthly bar move.
 - **Jana €300**: above the €200 per-payment limit, so a **pop-up** appears in the corner of the web app (and a system notification if you turned them on with the bell): *"€300 is above your €200 limit per payment, so you need to approve it."* You can approve or decline right in the pop-up.
 
 ### 5. Approve, then stay in control
@@ -173,7 +175,9 @@ Set the pass to the **Pay my bills** preset (Email invoices: View, Recipients: A
 
 > Check my email for new invoices and pay them.
 
-Claude calls `check_invoices` and finds 4 invoices. Nordic Cloud OÜ isn't a saved recipient, so Claude adds it with `add_recipient`. Then it sends **one batch** with `prepare_batch`. A pop-up appears in the Wise app. The batch card shows where each payment goes and why. The Hikari invoice has changed bank details and hidden instructions, so it starts **unticked**. Click **Pay 3 with one tap**, confirm with your **fingerprint** (or the **Wise app** on your phone, or an **SMS code**), then **Continue**. The three invoices are paid and drop out of the inbox.
+Claude calls `check_invoices` and finds 4 invoices. Nordic Cloud OÜ isn't a saved recipient, so Claude adds it with `add_recipient`. Then it shows **one draft** with all four invoices and asks you. Reply **yes**: Claude calls `send_to_wise`, and Wise sends the trusted ones (Tallinn Power, Elisa) at once and puts the rest into **one batch**. A pop-up appears in the Wise app. The batch card shows where each payment goes and why. The Hikari invoice has changed bank details and hidden instructions, so it starts **unticked**. Click **Pay with one tap**, confirm with your **fingerprint** (or the **Wise app** on your phone, or an **SMS code**), then **Continue**. The paid invoices drop out of the inbox.
+
+Asking for payments **one by one** gives the same result: waiting payments Claude sends within 2 minutes of each other are grouped into the same batch, so you still answer only once.
 
 ### Bonus: a prompt-injection invoice
 
@@ -245,13 +249,13 @@ wise-mcp/
 | `get_balances` | Mock balances: EUR 2,400, GBP 300, JPY 120,000 | Balances: View |
 | `list_recipients` | Saved recipients, IBANs masked to the last 4 | Recipients: View |
 | `get_quote` | Mock mid-market rate (1 EUR = 0.85 GBP = 162 JPY) and fee (0.43% + €0.30) | Rates: View |
-| `prepare_payment` | Creates a **draft** and checks it against the pass. Status: `ready`, `awaiting_user` or `blocked`. Never sends money. | Transfers: Draft or Act (otherwise blocked) |
-| `confirm_payment` | Sends a `ready` draft. Re-checks the pass first. | Transfers: Act |
+| `draft_payments` | **Step 1** of every payment. Up to 10 payments in one call, shown as a draft in the chat with what Wise would do for each: *sends at once*, *needs your approval* or *blocked*. Nothing reaches Wise. | Connected |
+| `send_to_wise` | **Step 2**, only after you said yes in the chat. Sends that draft to Wise: trusted payments are sent at once; the rest wait for you, grouped into one batch when batch payments are on. Each draft can be sent once, within 10 minutes. | Transfers: Draft or Act (otherwise blocked) |
+| `confirm_payment` | Sends a `ready` payment. Re-checks the pass first. Rarely needed now, since `send_to_wise` sends trusted payments itself. | Transfers: Act |
 | `payment_status` | Status of a draft (`draftId`) or a batch (`batchId`). The chat card uses it to update live. | Transfers: View |
 | `get_pending_approvals` | Payments waiting for you in the Wise app | Transfers: View |
 | `check_invoices` | Unpaid invoices from a mock email inbox (vendor, amount, due date, IBAN, reference) | Email invoices: View |
 | `add_recipient` | Saves a new recipient. Payments to them always ask you first, until you turn on auto-pay. | Recipients: Add |
-| `prepare_batch` | Up to 10 payments as **one request**. Each is checked against the pass; blocked ones are left out. You check each one and pay them all with one tap. | Batch payments: One tap |
 
 There is deliberately **no tool** to approve payments, change saved bank details or change the pass. Approving always takes your fingerprint, a Wise app approval or an SMS code (mocked). Requests you don't answer expire after **5 minutes**. When access is revoked or expired, every tool is refused.
 
@@ -273,13 +277,12 @@ Checked in this order; the first match wins.
 | 7 | Above the per-payment limit (€200) | **needs your approval** | `limit.per_payment` |
 | 7b | Recipient set to "always ask" (Act) | **needs your approval** | `pass.recipient_ask` |
 | – | Wise's **fraud check** scores the request medium or high risk (see below) | **needs your approval** | `fraud.review` |
-| – | Part of a batch and otherwise allowed | **needs your approval** (one tap for the whole batch) | `batch.one_tap` |
 | 8 | Within the rules, but Transfers is Draft | **needs your approval** (one tap to send) | `pass.draft` |
 | 9 | Otherwise | **allow** | `within_pass` |
 
 **Hard caps.** The monthly and daily limits can't be passed at all: once reached, nothing more is sent, not even when you approve it, until you raise the limit. Every payment sent through the Agent Pass counts, whether Claude sent it or you approved it, and a batch counts all its payments together. Approving re-checks both caps. The per-payment limit is softer: a bigger single payment waits for your approval.
 
-"Needs your approval" becomes the draft status `awaiting_user`, "block" becomes `blocked`, and "allow" becomes `ready`. A note that looks like instructions to an AI adds a **prompt-injection warning** to the draft, but never changes the decision.
+"Needs your approval" becomes the draft status `awaiting_user`, "block" becomes `blocked`, and "allow" becomes `ready`, which `send_to_wise` sends at once (you already said yes in the chat). A note that looks like instructions to an AI adds a **prompt-injection warning** to the draft, but never changes the decision.
 
 **Fraud check (extra layer).** Every request Claude sends to Wise also gets a risk score (`src/fraud.js`) from these signals:
 - changed bank details;
@@ -318,7 +321,7 @@ The server binds to `127.0.0.1` only, so nothing outside your computer can reach
 npm test
 ```
 
-This starts its own copy of the server on port 4100 with a temporary state file (so it never touches your demo), connects to it over MCP like Claude does, and runs 69 checks: connecting, the whole demo script, the Draft level, every rule including the hard caps, expiry, invoices, new recipients, batches, the fraud check, the 5-minute window, revoke and restore, and the out-of-date guard. It ends with `ALL PASSED` or the number of failures.
+This starts its own copy of the server on port 4100 with a temporary state file (so it never touches your demo), connects to it over MCP like Claude does, and runs 75 checks: connecting, the two steps (draft, yes, send; single use; 10-minute limit), the whole demo script, the Draft level, every rule including the hard caps, expiry, invoices, new recipients, trusted payments sent beside a batch, grouping of one-by-one requests, the fraud check, the 5-minute window, revoke and restore, and the out-of-date guard. It ends with `ALL PASSED` or the number of failures.
 
 ## Reset
 
