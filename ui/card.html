@@ -477,6 +477,10 @@
   const sentRows = (list) => (list || []).map((d) => `<div class="row" style="margin-top:12px">${avatar(d.recipient, d.country)}
       <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>✓ Sent now (trusted) · ${esc(d.ibanMasked || '')}</small></div></div>`).join('');
 
+  // Payments from the same request that were blocked (e.g. a scam account), never sent.
+  const blockedRows = (list) => (list || []).map((d) => `<div class="row" style="margin-top:12px;opacity:.55">${avatar(d.recipient, d.country)}
+      <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>✕ Not sent · ${esc(d.ibanMasked || '')}</small></div></div>`).join('');
+
   // draft_payments: step 1, a draft in the chat. Nothing has reached Wise yet.
   const OUTCOME = {
     sends_now: ['ok', 'Sends at once'],
@@ -505,7 +509,7 @@
         ${bullet('warn', '<strong>Reply “yes” to Claude</strong> to send this to Wise. Nothing has moved yet.')}
         ${n('sends_now') ? bullet('pos', `<strong>${n('sends_now')} trusted</strong> payment${n('sends_now') === 1 ? '' : 's'} will be sent at once.`) : ''}
         ${n('needs_you') ? bullet('warn', `<strong>${n('needs_you')}</strong> will wait for your approval in the Wise app${n('needs_you') > 1 ? ', in one request' : ''}.`) : ''}
-        ${n('blocked') ? bullet('neg', `<strong>${n('blocked')} blocked</strong> by your Agent Pass. They won't be sent.`) : ''}
+        ${s.items.filter((i) => i.outcome === 'blocked').map((i) => bullet('neg', `<strong>${/fraud system/.test(i.reason) ? 'Wise stopped a scam' : 'Blocked'}: ${esc(i.recipient)} ${fmt(i.amount, i.currency)}.</strong> ${esc(i.reason)}`)).join('')}
       </div>${foot}`;
   }
 
@@ -531,7 +535,7 @@
           <span class="status ${done ? 'ok' : 'no'}">${done ? `✓ ${paid.length + s.sentNow.length} sent` : s.status === 'expired' ? '⏱ Expired' : '✕ Declined'}</span></div>
         ${s.items.map((d) => `<div class="row" style="margin-top:12px;${d.status === 'paid' ? '' : 'opacity:.55'}">${avatar(d.recipient, d.country)}
           <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>${{ paid: '✓ Sent', declined: 'Not paid', blocked: 'Blocked', expired: 'Expired', awaiting_user: 'Waiting for you in the Wise app' }[d.status] || esc(d.status)}${d.status === 'paid' ? ' · ' + esc(d.ibanMasked || '') : ''}</small></div></div>`).join('')}
-        ${sentRows(s.sentNow)}
+        ${sentRows(s.sentNow)}${blockedRows(s.blockedNow)}
         <div class="bullets">${s.status === 'sent' ? bullet('pos', '<strong>You said yes</strong>, so Claude sent this to Wise.') : done ? bullet('pos', '<strong>Confirmed with your ID</strong> in the Wise app.') : bullet('pos', '<strong>No money moved.</strong>')}</div>${foot}`;
       return;
     }
@@ -539,8 +543,9 @@
       <div class="eyebrow">Claude sent ${s.items.length + s.sentNow.length} payments to Wise</div>
       <div class="hero"><div><div class="amount" style="font-size:30px">${esc(total)}</div><div class="sub-eur">${esc(s.title)}</div></div>
         <span class="status ${waiting.length ? 'wait' : 'no'}">${waiting.length ? `${waiting.length} waiting for you` : 'Blocked'}</span></div>
-      ${rows}${sentRows(s.sentNow)}
+      ${rows}${sentRows(s.sentNow)}${blockedRows(s.blockedNow)}
       <div class="bullets">
+        ${(s.blockedNow || []).map((d) => bullet('neg', `<strong>${/fraud system/.test(d.reason) ? 'Wise stopped a scam' : 'Not sent'}: ${esc(d.recipient)} ${fmt(d.amount, d.currency)}.</strong> ${esc(d.reason)}`)).join('')}
         ${s.sentNow.length ? bullet('pos', `<strong>${s.sentNow.length} trusted</strong> payment${s.sentNow.length === 1 ? ' was' : 's were'} sent at once.`) : ''}
         ${bullet('pos', `<strong>One tap pays ${s.sentNow.length ? 'the rest' : 'them all'}</strong>, after your fingerprint, Wise app or SMS code.`)}
         ${s.expiresAt ? bullet('warn', `<strong>Waiting for you</strong> for <span data-expires="${Date.parse(s.expiresAt)}">5:00</span> more.`) : ''}

@@ -9,6 +9,16 @@
 import { isExpired, sentTodayCount, state } from './state.js';
 import { fmt, maskIban, normIban, toEUR } from './money.js';
 
+/**
+ * Mock of Wise's fraud database: accounts other Wise users reported as scams. Money is never sent
+ * to them, whatever the Agent Pass says. (Demo data: the fake "Tallinn Power" account.)
+ */
+const REPORTED_ACCOUNTS = new Map([
+  ['LT473250079455120937', 'reported by 14 Wise users for fake invoices'],
+]);
+/** Why Wise knows this IBAN is a scam account, or null. */
+export const reportedAccount = (iban) => (iban ? REPORTED_ACCOUNTS.get(normIban(iban)) || null : null);
+
 /** Draft status for each decision. */
 export const STATUS_FOR = { allow: 'ready', needs_approval: 'awaiting_user', block: 'blocked' };
 // Later statuses: paid, declined (by the user), expired (no answer within 5 minutes).
@@ -75,6 +85,16 @@ export function decide({ recipientId, amount, currency, iban, pendingEUR = 0, pe
   const level = p.permissions.transfers;
   if (level !== 'draft' && level !== 'act') return READ_ONLY;
 
+  // 2b. Wise's fraud database knows this account as a scam: never send, not even with approval
+  const scam = reportedAccount(iban || r?.iban);
+  if (scam) {
+    return {
+      decision: 'block',
+      rule: 'fraud.reported_account',
+      reason: `Wise's fraud system stopped this: the account ${maskIban(iban || r.iban)} is ${scam}. No money will be sent to it.`,
+    };
+  }
+
   // 3. Unknown recipient
   if (!r) {
     return {
@@ -126,7 +146,9 @@ export function decide({ recipientId, amount, currency, iban, pendingEUR = 0, pe
     return {
       decision: 'needs_approval',
       rule: 'pass.recipient_ask',
-      reason: `You asked Claude to always check with you before paying ${r.name}.`,
+      reason: r.addedBy === 'claude'
+        ? `${r.name} is a new recipient Claude added, so you approve payments to them yourself.`
+        : `You asked Claude to always check with you before paying ${r.name.replace(/\.$/, '')}.`,
     };
   }
 

@@ -199,6 +199,7 @@ draft_payments ─► chat draft ─► you say yes ─► send_to_wise
 | 1 | Access revoked | block | `pass.revoked` |
 | 1b | Access expired | block | `pass.expired` |
 | 2 | Transfers is None or View | block (the wall) | `pass.transfers_read_only` |
+| 2b | IBAN reported to Wise for scams (`reportedAccount()`) | **block** | `fraud.reported_account` |
 | 3 | Recipient isn't saved | needs approval | `hard_stop.new_recipient` |
 | 4 | IBAN differs from the saved one | needs approval | `hard_stop.changed_bank_details` |
 | 5 | Currency not allowed | block | `currency.not_allowed` |
@@ -234,6 +235,7 @@ Some details:
 | Bank details differ from the saved ones | +45 |
 | Recipient was added by Claude | +15 |
 | Amount is more than 3× what you usually send them (`avgEUR`) | +25 |
+| Account was reported to Wise for scams (also blocks, rule 2b) | +100 |
 | Payment text contains instructions aimed at an AI | +40 |
 | Payment text pushes for urgency ("urgent", "immediately", …) | +15 |
 | 6 or more requests from Claude in 2 minutes | +20 |

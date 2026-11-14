@@ -114,6 +114,7 @@ const batchView = (b) => ({
   expiresAt: b.status === 'awaiting_user' ? new Date(Date.parse(b.createdAt) + APPROVAL_TTL_MS).toISOString() : null,
   items: b.draftIds.map((id) => cardFor(state.drafts[id])),
   sentNow: (b.sentWith || []).map((id) => cardFor(state.drafts[id])),
+  blockedNow: (b.blockedWith || []).map((id) => cardFor(state.drafts[id])),
 });
 
 /** One payment input, shared by draft_payments. */

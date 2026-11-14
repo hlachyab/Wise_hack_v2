@@ -22,7 +22,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { state, addActivity, resetState, sentTodayCount, today, EXPIRY_MS, PERMISSION_LEVELS } from './state.js';
-import { decide, hardCapReason, injectionWarnings, STATUS_FOR } from './rules.js';
+import { decide, hardCapReason, injectionWarnings, reportedAccount, STATUS_FOR } from './rules.js';
 import { assessFraud } from './fraud.js';
 import { CURRENCIES, FEE_FIXED_EUR, FEE_PERCENT, RATES_PER_EUR, fmt, maskIban, normIban, round2, toEUR } from './money.js';
 import { log } from './log.js';
@@ -242,7 +242,10 @@ export function sendToWise(chatDraftId) {
   for (const d of drafts) if (d.status === 'ready') confirmPayment(d.id); // trusted, and the user already said yes
   const waiting = drafts.filter((d) => d.status === 'awaiting_user');
   const batch = state.pass.permissions.batches === 'on' ? groupWaiting(waiting, cd.title) : null;
-  if (batch) batch.sentWith = drafts.filter((d) => d.status === 'paid').map((d) => d.id);
+  if (batch) {
+    batch.sentWith = drafts.filter((d) => d.status === 'paid').map((d) => d.id);       // trusted, sent at once
+    batch.blockedWith = drafts.filter((d) => d.status === 'blocked').map((d) => d.id); // never sent
+  }
   log(`sent ${cd.id} to Wise: ${drafts.map((d) => d.status).join(', ')}${batch ? ` (batch ${batch.id})` : ''}`);
   return { drafts, batch };
 }
@@ -290,6 +293,8 @@ export function addRecipient({ name, iban, currency, note }, by) {
   if (!String(name || '').trim()) throw new ActionError(400, 'Name is required.');
   if (!IBAN_RE.test(clean)) throw new ActionError(400, 'That IBAN doesn\'t look right.');
   if (!RATES_PER_EUR[currency]) throw new ActionError(400, `Currency must be one of ${CURRENCIES.join(', ')}.`);
+  const scam = reportedAccount(clean);
+  if (scam) throw new ActionError(403, `Wise's fraud system refused this account: it is ${scam}. It can't be added or paid.`);
   const dupe = Object.values(state.recipients).find((r) => normIban(r.iban) === clean);
   if (dupe) throw new ActionError(409, `${dupe.name} already has this IBAN.`);
   let id = String(name).toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '').slice(0, 20) || 'recipient';

@@ -7,7 +7,7 @@
 
 import { state } from './state.js';
 import { normIban, toEUR } from './money.js';
-import { looksLikeInjection } from './rules.js';
+import { looksLikeInjection, reportedAccount } from './rules.js';
 
 const VELOCITY_WINDOW_MS = 2 * 60 * 1000;
 const VELOCITY_MAX = 3; // more Claude requests than this in the window is unusual
@@ -26,6 +26,7 @@ export function assessFraud({ recipientId, amount, currency, iban, note }) {
   let score = 0;
   const add = (points, text) => { score += points; signals.push(text); };
 
+  if (reportedAccount(iban || r?.iban)) add(100, 'Account was reported to Wise for scams');
   if (!r) add(25, 'Recipient is not saved in your Wise account');
   else {
     if (iban && normIban(iban) !== normIban(r.iban)) add(45, 'Bank details differ from the ones you saved');

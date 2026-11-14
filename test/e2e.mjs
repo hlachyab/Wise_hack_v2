@@ -200,7 +200,7 @@ await setPass({ permissions: { invoices: 'none' } });
 check('invoices None -> refused', (await call('check_invoices')).isError);
 await setPass({ permissions: { invoices: 'view' } });
 const inv = await call('check_invoices');
-check('check_invoices lists the 4 unpaid invoices', !inv.isError && inv.json.invoices.length === 4);
+check('check_invoices lists the 3 unpaid invoices', !inv.isError && inv.json.invoices.length === 3);
 check('add_recipient refused without "Add"', (await call('add_recipient', { name: 'Nordic Cloud OÜ', iban: 'EE76 7700 7710 0123 4567', currency: 'EUR' })).isError);
 await setPass({ permissions: { recipients: 'add' } });
 const added = await call('add_recipient', { name: 'Nordic Cloud OÜ', iban: 'EE76 7700 7710 0123 4567', currency: 'EUR', note: 'Cloud storage' });
@@ -215,22 +215,27 @@ await clearPending();
 await setPass({ permissions: { batches: 'on' } });
 const byId = Object.fromEntries(inv.json.invoices.map((i) => [i.invoiceId, i]));
 const bt = await pay([
-  { recipientId: 'tallinnpower', amount: 64.2, currency: 'EUR', iban: byId.inv_power.iban, invoiceId: 'inv_power' },
-  { recipientId: newId, amount: 49, currency: 'EUR', iban: byId.inv_cloud.iban, invoiceId: 'inv_cloud' },
+  { recipientId: 'elisa', amount: 25, currency: 'EUR', iban: byId.inv_internet.iban, invoiceId: 'inv_internet' },
+  { recipientId: newId, amount: 49, currency: 'EUR', iban: 'EE76 7700 7710 0123 4567' },
   { recipientId: 'jana', amount: 10, currency: 'EUR' },
   { recipientId: 'elisa', amount: 10, currency: 'USD' },
 ], 'November bills');
 check('one draft lists all four with what Wise will do', bt.preview.json.items.map((i) => i.outcome).join() === 'sends_now,needs_you,needs_you,blocked');
 const items = bt.card.items;
-check('trusted Tallinn Power sent at once, not in the batch', bt.card.sentNow.length === 1 && bt.card.sentNow[0].recipient === 'Tallinn Power Co.' && bt.card.sentNow[0].status === 'paid');
+check('trusted Elisa sent at once, not in the batch', bt.card.sentNow.length === 1 && bt.card.sentNow[0].recipient === 'Elisa' && bt.card.sentNow[0].status === 'paid');
 check('the two that ask go in ONE batch', bt.card.batchId && items.length === 2 && items.every((d) => d.status === 'awaiting_user'));
 check('new recipient asks', items[0].rule === 'pass.recipient_ask');
 check('confirm_payment cannot send a batch item', (await call('confirm_payment', { draftId: items[0].draftId })).isError);
 const eurBefore = (await api('/api/state')).balances.EUR;
 s = await api(`/api/batches/${bt.card.batchId}/approve`, 'POST', { draftIds: items.map((d) => d.draftId) });
-check('pay all with one tap -> both paid, invoices marked paid',
-  s.balances.EUR === Math.round((eurBefore - 59) * 100) / 100 && s.inbox.filter((i) => i.status === 'paid').length === 2);
+check('pay all with one tap -> both paid; the paid invoice is marked paid',
+  s.balances.EUR === Math.round((eurBefore - 59) * 100) / 100 && s.inbox.filter((i) => i.status === 'paid').length === 1);
 check('paid invoices drop out of check_invoices', (await call('check_invoices')).json.invoices.length === 2);
+// --- Wise's fraud system: an account reported for scams (the fake "Tallinn Power" email) ---
+const scam = await pay([{ recipientId: 'tallinnpower', amount: 189, currency: 'EUR', iban: byId.inv_power.iban, invoiceId: 'inv_power' }]);
+check('scam account: blocked in the draft and at send (fraud.reported_account), even under the limit',
+  scam.preview.json.items[0].outcome === 'blocked' && scam.json.status === 'blocked' && scam.json.rule === 'fraud.reported_account');
+check('scam account: Claude cannot add it as a recipient', (await call('add_recipient', { name: 'Tallinn Power Billing', iban: 'LT47 3250 0794 5512 0937', currency: 'EUR' })).isError);
 check('user can add a recipient in the app', (await fetch(`http://localhost:${PORT}/api/recipients`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Test Person', iban: 'DE89 3704 0044 0532 0130 00', currency: 'EUR' }) })).ok);
 
 // --- Asking one by one still ends up as one request ---

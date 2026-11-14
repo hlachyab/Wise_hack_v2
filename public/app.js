@@ -126,10 +126,12 @@ const ALL_CURRENCIES = ['EUR', 'GBP', 'JPY'];
 const PRESETS = {
   look: { permissions: { balances: 'view', recipients: 'view', rates: 'view', invoices: 'none', transfers: 'view', batches: 'off' }, expiry: '1d' },
   draft: { permissions: { balances: 'view', recipients: 'view', rates: 'view', invoices: 'view', transfers: 'draft', batches: 'off' }, expiry: '1w', perPaymentLimitEUR: 200, monthlyLimitEUR: 500 },
+  // Bills come from the user's own email (e.g. the Gmail connector in Claude); the built-in mock
+  // inbox (Email invoices) stays off so nothing is paid twice. Turn it on as a backup.
   bills: {
-    permissions: { balances: 'view', recipients: 'add', rates: 'view', invoices: 'view', transfers: 'act', batches: 'on' }, expiry: '30d',
-    perPaymentLimitEUR: 200, monthlyLimitEUR: 500, dailyCountLimit: 10, allowedCurrencies: ['EUR'],
-    autoPay: { elisa: true, tallinnpower: true, jana: false, hikari: false, marko: false, sofia: false, lumi: false },
+    permissions: { balances: 'view', recipients: 'add', rates: 'view', invoices: 'none', transfers: 'act', batches: 'on' }, expiry: '30d',
+    perPaymentLimitEUR: 200, monthlyLimitEUR: 500, dailyCountLimit: 10, allowedCurrencies: ['EUR', 'JPY'],
+    autoPay: { elisa: true, tallinnpower: true, jana: true, hikari: false, marko: false, sofia: false, lumi: false },
   },
 };
 
@@ -940,7 +942,7 @@ function render(s) {
 
 let lastKey = '';
 
-const API_VERSION = 7; // must match STATE_VERSION in src/state.js
+const API_VERSION = 8; // must match STATE_VERSION in src/state.js
 
 async function poll() {
   let s;

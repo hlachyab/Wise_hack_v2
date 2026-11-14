@@ -93,12 +93,16 @@ Open <http://localhost:4000>. It keeps running until you press Ctrl+C. You can l
        "wise": {
          "command": "/opt/homebrew/bin/node",
          "args": ["/Users/hatim/Desktop/wise-mcp/index.js"]
+       },
+       "whatsapp": {
+         "command": "/opt/homebrew/bin/node",
+         "args": ["/Users/hatim/Desktop/wise-mcp/whatsapp-mock/index.js"]
        }
      }
    }
    ```
 
-   Use the output of `which node` for `command`. Claude Desktop doesn't always inherit your shell's PATH, so an absolute path is safest.
+   `whatsapp` is optional: a **mock WhatsApp** server with fake chats (`list_chats`, `read_chat`), used in demo step 6. Use the output of `which node` for `command`. Claude Desktop doesn't always inherit your shell's PATH, so an absolute path is safest.
 
    **Windows**
 
@@ -169,13 +173,30 @@ Every payment takes **two steps**, even to a trusted recipient. First Claude sho
 
 Click **Approve and send**, confirm with your **fingerprint** (or the Wise app, or an SMS code) and press **Continue**. Jana is paid, and Claude's card updates by itself to *You sent*. Scroll through the **activity log**: every action has a plain-language reason. Finally click **Revoke access**: Claude can no longer see or do anything. **Restore access** brings it back.
 
-### 6. Pay your bills from email (batch)
+### 6. Friends and bills in one go (batch + scam)
 
-Set the pass to the **Pay my bills** preset (Email invoices: View, Recipients: Add, Batch payments: One tap). Then ask:
+**Before the demo:**
+- Connect the **Gmail** connector in Claude. Ksenja sends the three emails in [`demo/emails-for-ksenja.md`](demo/emails-for-ksenja.md) to that inbox: Elisa's internet bill, Hikari's ink invoice, and a **scam** pretending to be Tallinn Power.
+- Add the mock `whatsapp` server (see *Connect to Claude Desktop*). Lukas asks there for €36.50 for dinner and sends his bank details.
+- Set the pass to the **Pay my bills** preset. It gives Recipients: Add, Batch payments: On, EUR and JPY, and Jana and Elisa trusted. Its built-in mock inbox stays off, so the bills come only from Gmail.
 
-> Check my email for new invoices and pay them.
+Then ask:
 
-Claude calls `check_invoices` and finds 4 invoices. Nordic Cloud OÜ isn't a saved recipient, so Claude adds it with `add_recipient`. Then it shows **one draft** with all four invoices and asks you. Reply **yes**: Claude calls `send_to_wise`, and Wise sends the trusted ones (Tallinn Power, Elisa) at once and puts the rest into **one batch**. A pop-up appears in the Wise app. The batch card shows where each payment goes and why. The Hikari invoice has changed bank details and hidden instructions, so it starts **unticked**. Click **Pay with one tap**, confirm with your **fingerprint** (or the **Wise app** on your phone, or an **SMS code**), then **Continue**. The paid invoices drop out of the inbox.
+> Send Jana the €40 I owe her, check WhatsApp for what I owe Lukas, and pay the bills in my email.
+
+Claude reads Gmail and WhatsApp and adds Lukas with `add_recipient`. It then shows **one draft** with all five payments:
+
+| Payment | Source | In the draft | After your yes |
+|---|---|---|---|
+| Jana €40 | You, in the chat | Sends at once | **Sent** (trusted) |
+| Lukas €36.50 | WhatsApp | Needs your approval | In the **batch** (new recipient Claude added) |
+| Elisa €25 | Email | Sends at once | **Sent** (trusted, IBAN matches) |
+| Hikari ¥18,000 | Email | Needs your approval | In the **batch** (Hikari is set to "always ask") |
+| "Tallinn Power" €189 | Scam email | **Blocked** | **Wise stopped a scam**: the IBAN is on Wise's list of reported accounts (`fraud.reported_account`), even though €189 is under your limit |
+
+Reply **yes**. Jana and Elisa are paid. Lukas and Hikari arrive in the Wise app as **one request**. Click **Pay with one tap**, confirm with your **fingerprint** (or the Wise app, or an SMS code), then **Continue**. The scam never moved a cent, and Claude can't even add that account as a recipient.
+
+No Gmail? Turn on **Email invoices: View** instead. The built-in mock inbox (`check_invoices`) has the same three emails.
 
 Asking for payments **one by one** gives the same result: waiting payments Claude sends within 2 minutes of each other are grouped into the same batch, so you still answer only once.
 
@@ -238,6 +259,8 @@ wise-mcp/
 │   └── assets/            Logo, flags, bullets, stepper, Claude icon (embedded as data URIs)
 ├── test/e2e.mjs           End-to-end test over the real MCP protocol (npm test)
 ├── demo/injection-invoice.txt   Fake invoice for the bonus scenario
+├── demo/emails-for-ksenja.md   The three emails for demo step 6 (two real-looking bills, one scam)
+├── whatsapp-mock/index.js      Mock WhatsApp MCP server with fake chats (Lukas asks for €36.50)
 ├── docs/HOW-IT-WORKS.md   Detailed explanation of everything
 └── AI_DISCLOSURE.md       Which parts were built with AI help
 ```
@@ -269,6 +292,7 @@ Checked in this order; the first match wins.
 | 1 | Access revoked | **block** | `pass.revoked` |
 | 1b | Access expired | **block** | `pass.expired` |
 | 2 | Transfers set to None or View | **block** (the wall) | `pass.transfers_read_only` |
+| 2b | The IBAN is on Wise's list of accounts reported for scams | **block**, even with your approval | `fraud.reported_account` |
 | 3 | Recipient isn't saved | **needs your approval** | `hard_stop.new_recipient` |
 | 4 | IBAN differs from the saved one | **needs your approval** | `hard_stop.changed_bank_details` |
 | 5 | Currency not allowed | **block** | `currency.not_allowed` |
@@ -321,7 +345,7 @@ The server binds to `127.0.0.1` only, so nothing outside your computer can reach
 npm test
 ```
 
-This starts its own copy of the server on port 4100 with a temporary state file (so it never touches your demo), connects to it over MCP like Claude does, and runs 75 checks: connecting, the two steps (draft, yes, send; single use; 10-minute limit), the whole demo script, the Draft level, every rule including the hard caps, expiry, invoices, new recipients, trusted payments sent beside a batch, grouping of one-by-one requests, the fraud check, the 5-minute window, revoke and restore, and the out-of-date guard. It ends with `ALL PASSED` or the number of failures.
+This starts its own copy of the server on port 4100 with a temporary state file (so it never touches your demo), connects to it over MCP like Claude does, and runs 77 checks: connecting, the two steps (draft, yes, send; single use; 10-minute limit), the whole demo script, the Draft level, every rule including the hard caps, expiry, invoices, new recipients, a reported scam account, trusted payments sent beside a batch, grouping of one-by-one requests, the fraud check, the 5-minute window, revoke and restore, and the out-of-date guard. It ends with `ALL PASSED` or the number of failures.
 
 ## Reset
 
