@@ -218,6 +218,12 @@ check('restore -> ready again', p.json.status === 'ready');
 const res = await fetch(`http://localhost:${PORT}/api/drafts/nope/approve`, { method: 'POST' });
 check('approving an unknown draft -> 404', res.status === 404);
 
+// --- An out-of-date server copy must not wipe newer data ---
+fs.writeFileSync(STATE_FILE, JSON.stringify({ version: 999, note: 'written by a newer server' }));
+const old = await client.callTool({ name: 'get_balances', arguments: {} });
+check('outdated copy: tool says restart Claude Desktop', old.isError && old.content[0].text.includes('out of date'));
+check('outdated copy: newer state file left untouched', JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')).version === 999);
+
 await client.close();
 fs.rmSync(STATE_FILE, { force: true });
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED');

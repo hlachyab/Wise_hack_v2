@@ -92,13 +92,25 @@ function invoice(id, vendor, from, subject, amount, currency, iban, reference, r
 /** The current state. A live binding: importers always see the latest value. */
 export let state;
 
+/**
+ * True when the state file was written by a NEWER version of this server (e.g. Claude Desktop is
+ * still running a copy started before an update). This copy must not touch it.
+ */
+export let outdated = false;
+
 export function load() {
+  let parsed;
   try {
-    state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-    if (state.version !== STATE_VERSION) throw new Error('old state file');
+    parsed = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
   } catch {
-    state = createInitialState();
-    save();
+    parsed = null;
+  }
+  outdated = !!parsed && parsed.version > STATE_VERSION;
+  if (parsed && parsed.version === STATE_VERSION) {
+    state = parsed;
+  } else {
+    state = createInitialState(); // missing, broken, older or newer file
+    if (!outdated) save(); // never overwrite a newer file
   }
   expireStale();
 }
@@ -120,6 +132,7 @@ function expireStale() {
 }
 
 export function save() {
+  if (outdated) return; // an older copy of the server must not overwrite newer data
   const tmp = `${STATE_FILE}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
   fs.renameSync(tmp, STATE_FILE); // atomic replace

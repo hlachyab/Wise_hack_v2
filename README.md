@@ -327,6 +327,8 @@ Restarting Claude Desktop does **not** reset the demo, because state is kept in 
 
 ## Troubleshooting
 
+**Claude says "failed", or connecting doesn't stick.** Claude Desktop is still running a copy of the server started before you updated the project. Fully quit Claude Desktop (**Cmd+Q**, not just closing the window) and open it again. Newer versions of the server refuse to run old code against new data and tell Claude to restart; check with `ps aux | grep wise-mcp/index.js`, as there should be at most one Claude copy plus your own `npm start` / `npm run web`.
+
 - **The page shows "The server on port 4000 is an older version".** Claude Desktop is still running a copy of the server from before an update. Fully quit Claude Desktop (Cmd+Q), reopen it, and reload the page.
 - **The page says it can't reach the server.** Nothing is running on port 4000. Run `npm run web`, or open Claude Desktop.
 - **Tools don't appear.** Check the JSON is valid and the paths are absolute, then fully quit Claude Desktop (Cmd+Q) and reopen it. Check the log file above.

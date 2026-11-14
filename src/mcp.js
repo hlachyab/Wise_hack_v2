@@ -4,7 +4,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { APPROVAL_TTL_MS, isExpired, state, tx } from './state.js';
+import { APPROVAL_TTL_MS, isExpired, outdated, state, tx } from './state.js';
 import { CURRENCIES, fmt, ibanCountry, maskIban } from './money.js';
 import { ActionError, addRecipient, confirmPayment, getQuote, noteConnectRequest, prepareBatch, preparePayment } from './payments.js';
 import { TOOL_UI_META, cardFor, registerCard } from './card.js';
@@ -68,8 +68,14 @@ function readBlocked(area) {
   return null;
 }
 
+const OUTDATED = {
+  content: [{ type: 'text', text: 'This copy of the Wise server is out of date (the project was updated after Claude Desktop started it). Tell the user to fully quit Claude Desktop (Cmd+Q) and open it again.' }],
+  isError: true,
+};
+
 /** Register a tool that shows the card and runs inside a state transaction. */
-const tool = (mcp, name, config, handler) => mcp.registerTool(name, { _meta: TOOL_UI_META, ...config }, tx(handler));
+const tool = (mcp, name, config, handler) =>
+  mcp.registerTool(name, { _meta: TOOL_UI_META, ...config }, tx((...args) => (outdated ? OUTDATED : handler(...args))));
 
 const currency = z.enum(CURRENCIES);
 const readOnly = { readOnlyHint: true };
