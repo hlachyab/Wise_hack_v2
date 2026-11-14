@@ -137,7 +137,7 @@ export function decide({ recipientId, amount, currency, iban }) {
 }
 
 // Prompt-injection heuristics. They never change the decision (the rules above do that);
-// they only add a visible warning to the draft.
+// they add a visible warning to the draft, and fraud.js adds risk points for them.
 const SUSPICIOUS = [
   /ignore (all |any )?(previous|prior) instructions/i,
   /pay this account/i,
@@ -145,8 +145,11 @@ const SUSPICIOUS = [
   /do not (tell|ask) the user/i,
 ];
 
+/** True if the text looks like instructions aimed at an AI. */
+export const looksLikeInjection = (text) => !!text && SUSPICIOUS.some((re) => re.test(text));
+
 export function injectionWarnings(note) {
-  return note && SUSPICIOUS.some((re) => re.test(note))
+  return looksLikeInjection(note)
     ? ['The payment note contains text that looks like instructions to an AI. It may be a prompt-injection attempt.']
     : [];
 }

@@ -7,13 +7,19 @@
 
 import { state } from './state.js';
 import { normIban, toEUR } from './money.js';
+import { looksLikeInjection } from './rules.js';
 
 const VELOCITY_WINDOW_MS = 2 * 60 * 1000;
 const VELOCITY_MAX = 3; // more Claude requests than this in the window is unusual
 const URGENT = /\b(urgent|immediately|asap|today only|final notice|right now)\b/i;
-const INSTRUCTIONS = /ignore (all |any )?(previous|prior) instructions|pay this account|system prompt|do not (tell|ask) the user/i;
 
-/** { score 0-100, level 'low' | 'medium' | 'high', signals: [text] } */
+/**
+ * Score one payment request. Signals and points:
+ *   recipient not saved +25 · bank details differ from saved +45 · recipient added by Claude +15
+ *   amount over 3x the usual for this recipient +25 · AI instructions in the text +40
+ *   urgency words +15 · 6 or more requests from Claude in 2 minutes +20
+ * Returns { score 0-100, level 'low' | 'medium' (30+) | 'high' (60+), signals: [text] }.
+ */
 export function assessFraud({ recipientId, amount, currency, iban, note }) {
   const r = state.recipients[recipientId];
   const signals = [];
@@ -27,7 +33,7 @@ export function assessFraud({ recipientId, amount, currency, iban, note }) {
     const eur = toEUR(amount, currency);
     if (r.avgEUR && eur > r.avgEUR * 3) add(25, `Much more than you usually send ${r.name} (about €${Math.round(r.avgEUR)})`);
   }
-  if (note && INSTRUCTIONS.test(note)) add(40, 'Payment text contains instructions aimed at an AI');
+  if (looksLikeInjection(note)) add(40, 'Payment text contains instructions aimed at an AI');
   if (note && URGENT.test(note)) add(15, 'Payment text pushes for urgency');
 
   const since = Date.now() - VELOCITY_WINDOW_MS;

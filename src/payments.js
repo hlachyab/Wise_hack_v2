@@ -4,10 +4,17 @@
 // Draft lifecycle:
 //   prepare ─┬─> ready ──────── confirm_payment (Claude) ──┐
 //            ├─> awaiting_user ─┬─ Approve (user) ─────────┴─> paid
-//            │                  └─ Decline (user) ─> declined
+//            │                  ├─ Decline (user) ─> declined
+//            │                  └─ no answer in 5 min ─> expired   (state.js expireStale)
 //            └─> blocked
 //   confirm_payment re-checks the pass at send time, so a "ready" draft can still move to
 //   awaiting_user or blocked if the user changed their pass in the meantime.
+//
+// A batch is a group of drafts the user confirms with one tap: awaiting_user -> paid | declined
+// | expired. Inside a batch even "allowed" payments wait for that tap (rule batch.one_tap).
+//
+// Decision order for a new draft: the Agent Pass rules (rules.js) first, then Wise's fraud check
+// (fraud.js), which can only make a decision stricter, never looser.
 
 import { randomUUID } from 'node:crypto';
 import { state, addActivity, resetState, sentTodayCount, today, EXPIRY_MS, PERMISSION_LEVELS } from './state.js';

@@ -1,6 +1,13 @@
-// The MCP server: 7 tools for Claude. Each one is gated by the user's Wise Agent Pass.
-// None of them can approve a payment, add a recipient or change the pass. Only the user can,
-// in the Wise app.
+// The MCP server: the 10 tools Claude can call. Every one is gated by the user's Wise Agent Pass.
+//
+//   Read      get_balances, list_recipients, get_quote, check_invoices, payment_status,
+//             get_pending_approvals
+//   Prepare   prepare_payment, prepare_batch, add_recipient (only with Recipients set to "Add")
+//   Send      confirm_payment (only drafts the pass marked "ready")
+//
+// None of them can approve a payment, change saved bank details or change the pass. Only the
+// user can, in the Wise app (src/web.js). Every tool runs inside tx() so it sees fresh state, and
+// returns both text (for Claude) and structuredContent (for the in-chat card, src/card.js).
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
@@ -48,6 +55,13 @@ const NOT_CONNECTED = {
   hint: `Tell the user to open the Wise app (${WISE_APP_URL}) and approve the connection there, then try again. Do not ask for passwords or bank details.`,
   connect: true,
 };
+
+/** Not connected yet: note the attempt (the Wise app then shows "Claude is requesting access"). */
+function notConnected() {
+  if (state.pass.connected) return null;
+  noteConnectRequest();
+  return denied(NOT_CONNECTED);
+}
 
 /** Why Claude can't read `area` right now, or null if it can. */
 function readBlocked(area) {
@@ -117,7 +131,7 @@ export function createMcpServer() {
     title: 'List saved recipients',
     description:
       "List the user's saved recipients. Bank details are masked to the last 4 characters. " +
-      'There is no tool to add or edit recipients — only the user can do that.',
+      'Use add_recipient to add a new one (if the Agent Pass allows it); saved bank details can only be changed by the user.',
     inputSchema: {},
     annotations: readOnly,
   }, () => {
@@ -164,10 +178,8 @@ export function createMcpServer() {
       invoiceId: z.string().optional().describe('The invoice this pays, from check_invoices'),
     },
   }, (args) => {
-    if (!state.pass.connected) {
-      noteConnectRequest();
-      return denied(NOT_CONNECTED);
-    }
+    const no = notConnected();
+    if (no) return no;
     if (args.invoiceId && state.pass.permissions.invoices === 'none') args.invoiceId = undefined;
     const d = preparePayment(args);
     return view('payment', cardFor(d), `Status: ${d.status}. ${d.reason}\nNext: ${NEXT_STEP[d.status]}`);
@@ -296,10 +308,8 @@ export function createMcpServer() {
       })).min(1).max(10),
     },
   }, (args) => {
-    if (!state.pass.connected) {
-      noteConnectRequest();
-      return denied(NOT_CONNECTED);
-    }
+    const no = notConnected();
+    if (no) return no;
     if (state.pass.permissions.batches !== 'on') {
       return denied({ message: "Your Agent Pass doesn't allow batch payments.", hint: 'Prepare the payments one by one with prepare_payment, or tell the user they can turn on Batch payments in the Wise app.' });
     }

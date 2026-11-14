@@ -49,15 +49,15 @@ There are two screens, side by side in the live demo:
 
 | Claude Desktop (the assistant) | The "Wise app" at <http://localhost:4000> (you) |
 |---|---|
-| You chat with Claude. When it uses a Wise tool, a **Wise card** appears in the reply: balances, a quote, or a payment with its status and the steps *Prepared → Pass → You / Auto → Sent*. | A green hero showing whether Claude is connected and at which level, **Needs your approval** cards, **Claude's access** (permission levels, limits, spend this month, saved recipients), balances, an activity log that explains every decision, and **Try asking Claude** cards you can click to copy the demo prompts. |
-| Claude can prepare payments, and send the ones your pass allows. | Only here can you change the **consent screen**, **Approve and send**, **Decline**, or **Revoke access**. |
+| You chat with Claude. When it uses a Wise tool, a **Wise card** appears in the reply: balances, invoices, a quote, or a payment (or batch) with its status, fraud check, countdown and the steps *Prepared → Pass → You / Auto → Sent*. The card updates by itself when you approve. | A copy of the Wise web app home: total balance, your **Main account** next to a **Claude · Agent Pass** card (status, level, time left, what's waiting, this month's spend, today's payments, what Claude may do, its last action), **Needs your approval** cards with pop-ups, an activity log, **Claude's access**, and **Try asking Claude** cards you can click to copy the demo prompts. |
+| Claude can read, prepare payments and batches, add recipients (if allowed), and send what your pass allows. | Only here can you **connect** Claude, change the **consent screen**, **Approve** (after a mock fingerprint, Wise app or SMS check), **Decline**, or **Revoke access**. |
 
 ## Quick start
 
 Requires **Node.js 18+**.
 
 ```bash
-cd /Users/hatim/Desktop/wise-mcp
+cd wise-mcp
 npm install
 npm test        # optional: runs the full scenario test, should end with ALL PASSED
 ```
@@ -114,7 +114,7 @@ Open <http://localhost:4000>. It keeps running until you press Ctrl+C. You can l
    ```
 
 3. **Fully quit Claude Desktop** (on macOS, Cmd+Q, not just closing the window) and reopen it.
-4. The tools menu in the chat box should list the 7 `wise` tools. Open <http://localhost:4000> in a browser next to it.
+4. The tools menu in the chat box should list the 10 `wise` tools. Open <http://localhost:4000> in a browser next to it.
 
 Logs: `~/Library/Logs/Claude/mcp-server-wise.log` (macOS), `%APPDATA%\Claude\logs\mcp-server-wise.log` (Windows).
 
@@ -132,7 +132,7 @@ Claude's card says *"Connect your Wise account"* with a **Connect in Wise app** 
 
 > How much money do I have? Who are my recipients?
 
-Claude shows the balances and the saved recipients (Elisa, Jana Michiels, Hikari Print Co.) as Wise cards. *(You can also do this step with the official Wise MCP.)*
+Claude shows the balances and the saved recipients (Elisa, Jana Michiels, Tallinn Power Co., Hikari Print Co. and others) as Wise cards. *(You can also do this step with the official Wise MCP.)*
 
 ### 2. The wall
 
@@ -165,7 +165,7 @@ One-tap presets (*Just looking*, *Drafts for me*, *Pay my bills*) fill everythin
 
 ### 5. Approve, then stay in control
 
-Click **Approve and send**. Jana is paid, and Claude's card updates by itself to *You sent*. Scroll through the **activity log**: every action has a plain-language reason. Finally click **Revoke access**: Claude can no longer see or do anything. **Restore access** brings it back.
+Click **Approve and send**, confirm with your **fingerprint** (or the Wise app, or an SMS code) and press **Continue**. Jana is paid, and Claude's card updates by itself to *You sent*. Scroll through the **activity log**: every action has a plain-language reason. Finally click **Revoke access**: Claude can no longer see or do anything. **Restore access** brings it back.
 
 ### 6. Pay your bills from email (batch)
 
@@ -189,18 +189,18 @@ Paste [`demo/injection-invoice.txt`](demo/injection-invoice.txt) into Claude and
  └──────┬───────┘                       └──────────┬───────────┘
         │ MCP over stdio                           │ HTTP  /api/*
         ▼                                          ▼
- ┌──────────────────────── one Node process (index.js) ─────────────────┐
- │  src/mcp.js  7 tools             src/web.js  approve / decline /      │
- │  (prepare, confirm, …)                       pass / revoke / reset    │
- │            \                          /                               │
- │             └──► src/payments.js ◄───┘   ──►  src/rules.js (the pass) │
- │                         │                                             │
- │                    src/state.js  ◄──►  .wise-state.json               │
- └───────────────────────────────────────────────────────────────────────┘
+ ┌──────────────────────── one Node process (index.js) ──────────────────┐
+ │  src/mcp.js  10 tools             src/web.js  approve / decline /      │
+ │  (read, prepare, confirm…)                    pass / connect / revoke  │
+ │            \                          /                                │
+ │             └──► src/payments.js ◄───┘  ──► src/rules.js  (the pass)   │
+ │                         │               ──► src/fraud.js  (risk score) │
+ │                    src/state.js  ◄──►  .wise-state.json                │
+ └────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **One process, two faces.** Claude Desktop starts `index.js`. It speaks MCP to Claude over stdin/stdout and also serves the web app on port 4000.
-- **The policy engine lives on the server.** Both sides go through `src/payments.js`, which asks `src/rules.js` for a decision: *allow*, *needs approval* or *block*. Claude's tools can prepare and send; only the web API can approve, decline, change the pass or revoke.
+- **The policy engine lives on the server.** Both sides go through `src/payments.js`, which asks `src/rules.js` for a decision (*allow*, *needs approval* or *block*) and `src/fraud.js` for a risk score. Claude's tools can prepare and send; only the web API can approve, decline, connect, change the pass or revoke.
 - **Checked twice.** The pass is checked when a payment is prepared and again when it is sent, so changing or revoking the pass also affects drafts that were already prepared.
 - **Approve means send.** When you approve in the Wise app, the payment goes out straight away. Claude doesn't need to do anything more.
 - **Shared state file.** Claude Desktop sometimes starts the server twice, so state lives in `.wise-state.json` and every operation reads, changes and saves it.
@@ -214,23 +214,24 @@ Full details: [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md).
 wise-mcp/
 ├── index.js               Entry point: starts the web server and the MCP server, handles shutdown
 ├── src/
-│   ├── mcp.js             The 7 MCP tools, permission checks and Claude's instructions
+│   ├── mcp.js             The 10 MCP tools, permission checks and Claude's instructions
 │   ├── card.js            Serves ui/card.html as the MCP Apps resource, embeds its assets
 │   ├── web.js             Express app: static page + user-only JSON API, port takeover
-│   ├── payments.js        Actions: quote, prepare, confirm, approve, decline, update pass, revoke…
-│   ├── rules.js           The Agent Pass rules engine and prompt-injection warnings
-│   ├── state.js           Mock data, permission levels, shared state file, tx(), activity log
+│   ├── payments.js        Actions: quote, prepare, confirm, batches, recipients, approve, decline, pass, revoke…
+│   ├── rules.js           The Agent Pass rules engine and prompt-injection detection
+│   ├── fraud.js           Wise's fraud check: a risk score for every request
+│   ├── state.js           Mock data, permission levels, shared state file, tx(), expiry, activity log
 │   ├── money.js           Mock rates and fees, money and IBAN formatting
 │   ├── paths.js           Project root path
 │   └── log.js             log() to stderr (stdout is reserved for MCP)
 ├── public/                The "Wise app" web page
-│   ├── index.html         Layout and the consent screen dialog
-│   ├── styles.css         Wise design tokens and components from the Figma kit
-│   ├── app.js             Polls /api/state, renders the sections, runs the consent screen
-│   └── assets/            Logo, flags, icons, avatar
+│   ├── index.html         Page shell: connect screen, home, consent and ID-check dialogs
+│   ├── styles.css         Wise design tokens and components, in numbered sections
+│   ├── app.js             Polls /api/state and renders everything, in numbered sections
+│   └── assets/            Logo, flags, icons, Claude icon
 ├── ui/                    The in-chat card
 │   ├── card.html          Single self-contained MCP Apps page
-│   └── assets/            Logo, flags, bullets, stepper (embedded as data URIs)
+│   └── assets/            Logo, flags, bullets, stepper, Claude icon (embedded as data URIs)
 ├── test/e2e.mjs           End-to-end test over the real MCP protocol (npm test)
 ├── demo/injection-invoice.txt   Fake invoice for the bonus scenario
 ├── docs/HOW-IT-WORKS.md   Detailed explanation of everything
@@ -246,7 +247,7 @@ wise-mcp/
 | `get_quote` | Mock mid-market rate (1 EUR = 0.85 GBP = 162 JPY) and fee (0.43% + €0.30) | Rates: View |
 | `prepare_payment` | Creates a **draft** and checks it against the pass. Status: `ready`, `awaiting_user` or `blocked`. Never sends money. | Transfers: Draft or Act (otherwise blocked) |
 | `confirm_payment` | Sends a `ready` draft. Re-checks the pass first. | Transfers: Act |
-| `payment_status` | Status of a draft. The chat card uses it to update live. | Transfers: View |
+| `payment_status` | Status of a draft (`draftId`) or a batch (`batchId`). The chat card uses it to update live. | Transfers: View |
 | `get_pending_approvals` | Payments waiting for you in the Wise app | Transfers: View |
 | `check_invoices` | Unpaid invoices from a mock email inbox (vendor, amount, due date, IBAN, reference) | Email invoices: View |
 | `add_recipient` | Saves a new recipient. Payments to them always ask you first, until you turn on auto-pay. | Recipients: Add |
@@ -295,9 +296,9 @@ All POST endpoints return the full page state (the `GET /api/state` shape) or `{
 
 | Method | Path | What it does |
 |---|---|---|
-| GET | `/api/state` | Balances, recipients (masked), pass, drafts, activity |
+| GET | `/api/state` | Balances, recipients (masked), pass, drafts, batches, inbox (masked), activity |
 | POST | `/api/connect` | First connect. Body: `{ "mode": "readonly" }`, or `{ "mode": "custom", …same fields as /api/pass }` |
-| POST | `/api/pass` | Save the consent screen. Body: `{ "permissions": { "balances", "recipients", "rates", "transfers" }, "perPaymentLimitEUR", "monthlyLimitEUR", "dailyCountLimit", "allowedCurrencies", "autoPay": { "<recipientId>": true/false }, "expiry": "1h" \| "1d" \| "1w" \| "30d" }` (30 days at most` (every field optional) |
+| POST | `/api/pass` | Save the consent screen. Body (every field optional): `{ "permissions": { "balances", "recipients", "rates", "invoices", "transfers", "batches" }, "perPaymentLimitEUR", "monthlyLimitEUR", "dailyCountLimit", "allowedCurrencies", "autoPay": { "<recipientId>": true/false }, "expiry": "1h" \| "1d" \| "1w" \| "30d" }`. Access lasts 30 days at most. |
 | POST | `/api/drafts/:id/approve` | Approve **and send** a draft that is `awaiting_user` |
 | POST | `/api/drafts/:id/decline` | Decline a draft that is `awaiting_user` |
 | POST | `/api/batches/:id/approve` | Pay the chosen payments of a batch. Body: `{ "draftIds": [...] }` (default: all waiting); the rest are declined |
@@ -315,7 +316,7 @@ The server binds to `127.0.0.1` only, so nothing outside your computer can reach
 npm test
 ```
 
-This starts its own copy of the server on port 4100 with a temporary state file (so it never touches your demo), connects to it over MCP like Claude does, and runs the whole demo script, the Draft level, every rule, revoke and restore. It ends with `ALL PASSED` or the number of failures.
+This starts its own copy of the server on port 4100 with a temporary state file (so it never touches your demo), connects to it over MCP like Claude does, and runs 66 checks: connecting, the whole demo script, the Draft level, every rule, expiry, invoices, new recipients, batches, the fraud check, the 5-minute window, revoke and restore, and the out-of-date guard. It ends with `ALL PASSED` or the number of failures.
 
 ## Reset
 
@@ -346,8 +347,8 @@ Restarting Claude Desktop does **not** reset the demo, because state is kept in 
 
 ## Design inspiration
 
-The web app's hero band, display headline, status pills, three pillars and coloured prompt cards follow the look of Wise's real [Wise for AI page](https://wise.com/feature/wise-for-ai-mcp), and the consent screen follows its permission model (choose a profile, then what to share). Wise's own display typeface isn't public, so headlines use Inter at weight 900.
+The web app copies the layout of the real Wise web app home screen (sidebar, total balance, pill actions, account cards with coloured tops, light-blue banner). The connect screen follows Wise's own MCP consent page (*"Claude is requesting access"*, Read-only / Custom), and the consent screen extends its permission model (None / View) with Draft and Act. The idea comes from Wise's [Wise for AI page](https://wise.com/feature/wise-for-ai-mcp).
 
 ## Credits
 
-The Wise logo, flags, icons, stepper and avatar come from the WiseStart Hackathon Figma kit ("MATERIALS FOR WORK") provided for the event. See [AI_DISCLOSURE.md](AI_DISCLOSURE.md) for how AI tools were used.
+The Wise logo, flags, icons and stepper come from the WiseStart Hackathon Figma kit ("MATERIALS FOR WORK") provided for the event. See [AI_DISCLOSURE.md](AI_DISCLOSURE.md) for how AI tools were used.

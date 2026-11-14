@@ -1,6 +1,18 @@
-// The "Wise app" web page (the user's side) and its small JSON API.
+// The "Wise app" web page (the user's side) and its small JSON API, on 127.0.0.1 only.
 // This is the only place where payments can be approved or declined, the Agent Pass changed,
-// or Claude's access revoked.
+// or Claude's access revoked. Claude has no way to call it.
+//
+//   GET  /api/state                    everything the page shows (IBANs masked)
+//   POST /api/connect                  first-time connect: { mode: 'readonly' | 'custom', ...pass }
+//   POST /api/pass                     save the consent screen (see updatePass)
+//   POST /api/drafts/:id/approve       send a waiting payment (after the page's ID check)
+//   POST /api/drafts/:id/decline
+//   POST /api/batches/:id/approve      { draftIds } pays the ticked ones, declines the rest
+//   POST /api/batches/:id/decline
+//   POST /api/recipients               { name, iban, currency } add a recipient
+//   POST /api/revoke | /api/restore    switch Claude's access off / back on (restore also renews)
+//   POST /api/reset                    start the demo over
+// Every POST replies with the new state, or { error } with a 4xx status.
 
 import express from 'express';
 import path from 'node:path';

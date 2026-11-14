@@ -10,6 +10,13 @@
 </head>
 <body>
 <!--
+  The "Wise app" page: the user's side of the demo. This file is the static shell; public/app.js
+  fills every element that has an id, and public/styles.css styles it. Parts, top to bottom:
+    1. Connect screen     shown until Claude is connected (#connect-screen)
+    2. App shell          sidebar, top bar, total balance, account card + "Claude · Agent Pass"
+                          card, banner, approvals, activity, Claude's access, prompt cards
+    3. Dialogs            consent (#consent) and identity check (#verify)
+    4. Toasts             pop-up notifications (#toasts)
   Layout follows the Wise web app home screen: left sidebar, header pills, "Total balance",
   pill actions, account cards with coloured tops, and a light-blue info banner.
 -->

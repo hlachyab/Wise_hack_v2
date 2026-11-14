@@ -5,11 +5,17 @@
   How it gets here: src/card.js serves this file as the resource ui://wise/card.html, with each
   __ASSET:file__ placeholder replaced by that file from ui/assets/ as a data URI. Claude Desktop
   renders it in a sandboxed iframe and sends it each tool result's structuredContent.
-  The `kind` field picks the layout: balances, recipients, quote or payment.
+  The `kind` field picks the layout (see render()):
+    balances, recipients, quote, invoices   read results
+    payment, batch                          a draft or batch and its status (watch() keeps it live)
+    approvals                               what is waiting for the user
+    recipient_added                         add_recipient result
+    denied                                  a refused call (not connected, revoked, expired, None)
 
   The card is display-only. It can't approve anything; only the web app can.
-  Its buttons only open the Wise app (ui/open-link).
-  It must stay a single self-contained file.
+  Its buttons only open the Wise app (ui/open-link). While something waits for the user it
+  calls the payment_status tool every 2 seconds, so it updates when they approve or decline.
+  It must stay a single self-contained file: no network access to localhost from the sandbox.
 -->
 <html lang="en">
 <head>
@@ -160,7 +166,6 @@
   const WISE_APP_URL = 'http://localhost:4000';
   const ASSETS = {
     logoForest: '__ASSET:wise-logo-forest.svg__',
-    logoLime: '__ASSET:wise-logo-lime.svg__',
     pos: '__ASSET:bullet-positive.svg__',
     neg: '__ASSET:bullet-negative.svg__',
     dot: '__ASSET:progress-step.svg__',
