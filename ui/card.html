@@ -53,19 +53,24 @@
 
   /* Figma "Section Card": white, 24px radius, 1px rgba(14,15,12,.12) border, 24px padding.
      Always the light Figma palette, so text stays readable in light and dark Claude. */
-  .card { background: #FFFFFF; border: 1px solid rgba(14, 15, 12, 0.12); border-radius: 24px; padding: 24px; max-width: 560px; overflow: hidden; box-shadow: 0 1px 2px rgba(14, 15, 12, 0.04); }
+  .card { background: #F3F4F3; border-radius: 32px; padding: 10px 24px 24px; max-width: 560px; overflow: hidden; }
+  /* Coloured top band, like the account cards on the Wise home screen ("Your card", "Jar"). */
+  .band { margin: 0 -14px 24px; height: 64px; border-radius: 24px 24px 0 0; padding: 0 20px 0 22px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #C1E695; color: var(--forest); }
+  .band.yellow { background: #FCEC7D; }
+  .band.red { background: #F6D6D0; }
+  .band.grey { background: #E8EBE7; }
+  .band-label { font-weight: 700; font-size: 15px; }
 
-  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
-  .brand { display: flex; align-items: center; gap: 10px; }
+    .brand { display: flex; align-items: center; gap: 10px; }
   .logo { height: 20px; width: auto; display: block; }
   .logo.lime { display: none; }
-  .chip { display: inline-flex; align-items: center; height: 28px; padding: 0 12px; border-radius: 100px; background: var(--bright-green); color: var(--forest); font-weight: 600; font-size: 13px; white-space: nowrap; }
-  .mock { font-size: 12px; color: var(--content-tertiary); white-space: nowrap; }
+  .chip { display: inline-flex; align-items: center; height: 28px; padding: 0 12px; border-radius: 100px; background: rgba(255, 255, 255, 0.6); color: var(--forest); font-weight: 600; font-size: 13px; white-space: nowrap; }
+  .mock { font-size: 12px; color: var(--content-tertiary); text-align: center; margin-top: 16px; }
 
   /* Hero */
   .eyebrow { color: var(--content-secondary); margin-bottom: 4px; }
   .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .amount { font-size: 34px; line-height: 40px; font-weight: 600; letter-spacing: -0.03em; }
+  .amount { font-size: 36px; line-height: 42px; font-weight: 700; letter-spacing: -0.03em; }
   .amount .ccy { font-size: 18px; font-weight: 600; letter-spacing: 0; margin-left: 4px; color: var(--content-secondary); }
   .sub-eur { color: var(--content-secondary); margin-top: 2px; }
   .status { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border-radius: 100px; font-weight: 600; font-size: 14px; white-space: nowrap; }
@@ -77,7 +82,7 @@
 
   /* Recipient row */
   .row { display: flex; align-items: center; gap: 16px; margin-top: 20px; }
-  .avatar { position: relative; width: 48px; height: 48px; border-radius: 50%; background: var(--neutral); display: grid; place-items: center; font-weight: 600; font-size: 16px; flex-shrink: 0; }
+  .avatar { position: relative; width: 48px; height: 48px; border-radius: 50%; background: #FFFFFF; display: grid; place-items: center; font-weight: 600; font-size: 16px; flex-shrink: 0; }
   .avatar .badge { position: absolute; right: -4px; bottom: -4px; width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 2px var(--badge-ring, #fff); }
   .flag { width: 24px; height: 24px; border-radius: 50%; display: block; flex-shrink: 0; box-shadow: 0 0 0 1px var(--border-soft); }
   .row .meta { min-width: 0; flex: 1; }
@@ -86,7 +91,7 @@
 
   /* Stepper (Figma "Stepper": 2px track, lime→forest progress, 8px dot, labels below) */
   .stepper { position: relative; margin: 28px 4px 4px; }
-  .track { position: relative; height: 2px; background: var(--neutral); border-radius: 100px; }
+  .track { position: relative; height: 2px; background: var(--neutral-strong); border-radius: 100px; }
   .progress { position: absolute; left: 0; top: 0; height: 2px; border-radius: 100px 0 0 100px; background: url("__ASSET:progress-bar.png__") left / 100% 100% no-repeat, linear-gradient(90deg, #9FE870, #163300); }
   .progress.fail { background: var(--negative); }
   .dot { position: absolute; top: 50%; width: 8px; height: 8px; transform: translate(-50%, -50%); }
@@ -106,7 +111,7 @@
   .bullet.neg p strong { color: var(--negative); }
   .bullet .warn-icon { width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; background: var(--warning); color: #3A341C; display: grid; place-items: center; font-weight: 800; font-size: 13px; flex-shrink: 0; }
 
-  .rule { display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 16px; padding: 4px 10px; border-radius: 100px; background: var(--neutral); color: var(--content-secondary); margin-top: 8px; }
+  .rule { display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 16px; padding: 4px 10px; border-radius: 100px; background: #FFFFFF; color: var(--content-secondary); margin-top: 8px; }
 
   /* Button (Figma: 48px pill, bright green, Inter SemiBold 14) */
   .btn { display: flex; align-items: center; justify-content: center; width: 100%; height: 48px; border: 0; border-radius: 50px; background: var(--bright-green); color: var(--forest); font: inherit; font-weight: 600; font-size: 14px; letter-spacing: 0.0125em; cursor: pointer; margin-top: 20px; }
@@ -115,15 +120,15 @@
   .foot { color: var(--content-tertiary); font-size: 12px; line-height: 18px; margin-top: 12px; text-align: center; }
 
   /* Balances / quote */
-  .title-sub { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; margin: 0 0 16px; }
+  .title-sub { font-size: 24px; line-height: 30px; font-weight: 700; letter-spacing: -0.015em; margin: 0 0 16px; }
   .label { color: var(--content-secondary); margin-bottom: 8px; }
-  .bal { border: 1px solid var(--interactive-secondary); border-radius: 10px; height: 56px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .bal { background: #FFFFFF; border-radius: 16px; height: 56px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
   .ccy-row { display: flex; align-items: center; gap: 8px; font-size: 16px; line-height: 24px; }
   .ccy-dot { width: 24px; height: 24px; border-radius: 50%; background: var(--forest); color: var(--bright-green); display: grid; place-items: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
   .bal .amt { font-size: 16px; font-weight: 600; }
   .total { display: flex; justify-content: space-between; color: var(--content-secondary); margin-top: 12px; }
   .total b { color: var(--content-primary); }
-  .money { border: 1px solid var(--interactive-secondary); border-radius: 10px; min-height: 64px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .money { background: #FFFFFF; border-radius: 16px; min-height: 64px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .money .amt { font-size: 18px; font-weight: 600; line-height: 24px; letter-spacing: -0.01em; }
   .fee { display: flex; align-items: center; justify-content: space-between; margin: 12px 0; }
   .fee .left { display: flex; align-items: center; gap: 16px; font-weight: 600; }
@@ -143,7 +148,7 @@
 </style>
 </head>
 <body>
-<div class="card" id="root"><div class="skeleton"><span class="pulse"></span> Checking with your Agent Pass…</div></div>
+<div class="card" id="root"><div class="skeleton" style="padding-top:14px"><span class="pulse"></span> Checking with your Agent Pass…</div></div>
 <script>
 (() => {
   const WISE_APP_URL = 'http://localhost:4000';
@@ -250,14 +255,14 @@
     .catch(() => {});
 
   // ---- Rendering ----
-  const header = () => `<div class="top">
+  // tone: green (allowed / sent), yellow (waiting for you), red (blocked / no access), grey.
+  const header = (tone = 'green', label = 'Agent Pass') => `<div class="band ${tone}">
       <div class="brand">
         <img class="logo forest" data-fb="logo" src="${ASSETS.logoForest}" alt="Wise" />
-        <img class="logo lime" data-fb="logo" src="${ASSETS.logoLime}" alt="Wise" />
-        <span class="chip">Agent Pass</span>
+        <span class="chip">${esc(label)}</span>
       </div>
-      <span class="mock">Demo · mock money</span>
     </div>`;
+  const foot = '<div class="mock">Demo · mock money</div>';
   const bullet = (kind, html) =>
     kind === 'warn'
       ? `<div class="bullet"><span class="warn-icon">!</span><p>${html}</p></div>`
@@ -265,7 +270,7 @@
 
   function renderLoading(args) {
     if (args && args.recipientId) {
-      root.innerHTML = header() + `<div class="skeleton"><span class="pulse"></span> Checking ${esc(fmt(args.amount, args.currency))} to ${esc(args.recipientId)} against your Agent Pass…</div>`;
+      root.innerHTML = header('grey', 'Payment') + `<div class="skeleton"><span class="pulse"></span> Checking ${esc(fmt(args.amount, args.currency))} to ${esc(args.recipientId)} against your Agent Pass…</div>`;
     }
   }
 
@@ -315,7 +320,7 @@
 
   // A read Claude isn't allowed to do (access revoked, or the permission is None).
   function renderDenied(s) {
-    root.innerHTML = header() + `<h3 class="title-sub">No access</h3>
+    root.innerHTML = header('red') + `<h3 class="title-sub">No access</h3>
       <div class="bullets">${bullet('neg', esc(s.error))}${bullet('pos', '<strong>Only you</strong> decide what Claude can see, in the Wise app.')}</div>
       <button class="btn" data-act="open">Open Wise app</button>`;
   }
@@ -324,14 +329,14 @@
   function renderApprovals(s) {
     const rows = s.pending.map((d) => `<div class="row" style="margin-top:12px">${avatar(d.recipient, d.country)}
         <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>${esc(d.reason)}</small></div></div>`).join('');
-    root.innerHTML = header() + `<h3 class="title-sub">${s.pending.length ? 'Waiting for you' : 'Nothing waiting'}</h3>` +
+    root.innerHTML = header(s.pending.length ? 'yellow' : 'green', 'Approvals') + `<h3 class="title-sub">${s.pending.length ? 'Waiting for you' : 'Nothing waiting'}</h3>` +
       (rows || `<div class="bullets">${bullet('pos', 'No payments need your approval.')}</div>`) +
       (s.pending.length ? `<div class="bullets">${bullet('pos', "<strong>Claude can't approve these.</strong> Approve or decline them in the Wise app.")}</div><button class="btn" data-act="open">Review in Wise app</button>` : '');
   }
 
   function renderPayment(s) {
     if (!s.status) {
-      root.innerHTML = header() + `<div class="status no">✕ Not sent</div><div class="bullets">${bullet('neg', esc(s.error))}</div>`;
+      root.innerHTML = header('red') + `<div class="status no">✕ Not sent</div><div class="bullets">${bullet('neg', esc(s.error))}</div>`;
       return;
     }
     const draftOnly = s.rule === 'pass.draft'; // within the rules; waiting only because the pass is Draft
@@ -361,7 +366,7 @@
     if (readOnly) action = `<button class="btn" data-act="open">Change permissions in Wise app</button>`;
 
     const note = s.note ? ' · ' + esc(s.note.slice(0, 48)) + (s.note.length > 48 ? '…' : '') : '';
-    root.innerHTML = header() + `
+    root.innerHTML = header({ ok: 'green', wait: 'yellow', no: 'red' }[cls] || 'grey', 'Payment') + `
       <div class="eyebrow">${eyebrow}</div>
       <div class="hero">
         <div>
@@ -375,7 +380,7 @@
       ${stepper(s)}
       <div class="bullets">${bullets.join('')}</div>
       <span class="rule">${esc(s.rule)}</span>
-      ${action}`;
+      ${action}${foot}`;
     watch(s);
   }
 
@@ -396,24 +401,24 @@
 
   function renderBalances(s) {
     const totalEUR = Object.entries(s.balances).reduce((t, [c, a]) => t + a / (RATES_PER_EUR[c] || 1), 0);
-    root.innerHTML = header() + `<h3 class="title-sub">Your balances</h3>` +
+    root.innerHTML = header('green', 'Balances') + `<h3 class="title-sub">Your balances</h3>` +
       Object.entries(s.balances).map(([c, a]) => `<div class="bal"><span class="ccy-row">${ccyDot(c)}${esc(c)}</span><span class="amt">${fmt(a, c)}</span></div>`).join('') +
-      `<div class="total"><span>Total, at mock rates</span><b>≈ ${fmt(Math.round(totalEUR * 100) / 100, 'EUR')}</b></div>`;
+      `<div class="total"><span>Total, at mock rates</span><b>≈ ${fmt(Math.round(totalEUR * 100) / 100, 'EUR')}</b></div>` + foot;
   }
 
   function renderQuote(s) {
     const fee = s.fee ? `${num(s.fee, s.feeCurrency)} ${esc(s.feeCurrency)}` : `0 ${esc(s.fromCurrency)}`;
-    root.innerHTML = header() + `<h3 class="title-sub">Quote</h3>
+    root.innerHTML = header('grey', 'Quote') + `<h3 class="title-sub">Quote</h3>
       <div class="label">Recipient gets</div>
       <div class="money"><span class="amt">${num(s.recipientGets, s.toCurrency)}</span><span class="ccy-row">${ccyDot(s.toCurrency)}${esc(s.toCurrency)}</span></div>
       <div class="fee"><span class="left"><img data-fb="minus" src="${ASSETS.minus}" width="24" height="24" alt="minus" />${fee}</span><span class="link">Fee</span></div>
       <div class="label indent" style="margin-bottom:0">You send</div>
       <div class="indent" style="font-weight:600">${num(s.amount, s.fromCurrency)} ${esc(s.fromCurrency)}</div>
-      <div class="bullets">${bullet('pos', `<strong>Mid-market rate</strong> 1 ${esc(s.fromCurrency)} = ${esc(s.midMarketRate)} ${esc(s.toCurrency)} (mock)`)}</div>`;
+      <div class="bullets">${bullet('pos', `<strong>Mid-market rate</strong> 1 ${esc(s.fromCurrency)} = ${esc(s.midMarketRate)} ${esc(s.toCurrency)} (mock)`)}</div>${foot}`;
   }
 
   function renderRecipients(s) {
-    root.innerHTML = header() + `<h3 class="title-sub">Saved recipients</h3>` +
+    root.innerHTML = header('grey', 'Recipients') + `<h3 class="title-sub">Saved recipients</h3>` +
       s.recipients.map((r) => `<div class="row" style="margin-top:12px">${avatar(r.name, r.country)}<div class="meta"><b>${esc(r.name)}</b><small>${r.note ? esc(r.note) + ' · ' : ''}${esc(r.currency)} · ${esc(r.iban)}</small></div></div>`).join('') +
       `<div class="bullets">${bullet('pos', `<strong>Only you</strong> can add or change recipients, in the Wise app.`)}</div>`;
   }

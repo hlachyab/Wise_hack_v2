@@ -9,120 +9,141 @@
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-<div class="topbar">
-  <header>
-    <div class="brand"><img class="logo" src="/assets/wise-logo-forest.svg" alt="Wise" /><span id="conn" class="chip">Agent Pass</span></div>
-    <div class="header-right">
-      <span class="icon-btn"><img src="/assets/bell.svg" width="24" height="24" alt="Notifications" /></span>
-      <img class="avatar-img" src="/assets/avatar.png" alt="Your profile" />
-    </div>
-  </header>
-</div>
+<!--
+  Layout follows the Wise web app home screen: left sidebar, header pills, "Total balance",
+  pill actions, account cards with coloured tops, and a light-blue info banner.
+-->
+<div class="shell">
+  <aside class="sidebar">
+    <img class="logo" src="/assets/wise-logo-forest.svg" alt="Wise" />
+    <nav>
+      <a class="nav active" href="#top"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9H4z"/></svg>Home</a>
+      <a class="nav" href="#sec-balances"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h4"/></svg>Cards</a>
+      <a class="nav" href="#sec-activity"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>Transactions</a>
+      <div class="nav open"><svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7h-7M17 7v7"/><path d="M4 20l5-5" opacity=".5"/></svg>Payments<span class="caret">⌃</span></div>
+      <a class="nav sub" href="#sec-approvals"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>Approvals<span id="nav-count" class="nav-count"></span></a>
+      <a class="nav sub" href="#sec-activity"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>Scheduled transfers</a>
+      <a class="nav sub" href="#sec-activity"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14-5l-2 2M4 13a8 8 0 0 0 14 5l2-2M4 4v4h4M20 20v-4h-4"/></svg>Direct Debits</a>
+      <a class="nav sub" href="#sec-activity"><svg viewBox="0 0 24 24"><path d="M12 20V6M6 11l6-6 6 6M5 3h14"/></svg>Pay invoices</a>
+      <a class="nav" href="#sec-pass"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 20c0-3.3 3.1-6 7-6s7 2.7 7 6"/><path d="M16 4a4 4 0 0 1 0 8M22 20c0-2.6-1.6-4.8-4-5.6"/></svg>Recipients</a>
+      <a class="nav" href="#sec-pass"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z"/><path d="M18 15l.8 2 2 .8-2 .8L18 21l-.8-2.4-2-.8 2-.8z"/></svg>AI &amp; Agent Pass</a>
+      <a class="nav" href="#sec-activity"><svg viewBox="0 0 24 24"><path d="M4 20h16M7 16v-5M12 16V6M17 16v-8"/></svg>Insights</a>
+    </nav>
+  </aside>
 
-<!-- Hero, styled after wise.com/feature/wise-for-ai-mcp: green band, big display headline, status pills. -->
-<section class="hero-band">
-  <div class="hero-inner">
-    <p class="hero-eyebrow">Wise for AI · Agent Pass</p>
-    <h1 class="display">Let your assistant<br />finish the job</h1>
-    <p class="hero-sub">Claude prepares and sends routine payments within the rules you set. Everything else waits for your one tap.</p>
-    <div class="hero-status" id="hero-status"></div>
-  </div>
-</section>
+  <div class="main" id="top">
+    <header class="topbar">
+      <span id="conn" class="pill pill-green">Agent Pass</span>
+      <button class="pill pill-light" data-act="consent">Permissions <b>＋</b></button>
+      <div class="me"><span class="me-avatar">AK<i></i></span><span class="me-name">Alex Kask</span><span class="chev">›</span></div>
+    </header>
 
-<main class="page">
-  <div id="offline" class="offline">Can't reach the Wise server on port 4000. Start it with <code>npm run web</code>, or open Claude Desktop.</div>
-  <div id="outdated" class="offline">The server on port 4000 is an older version of this demo. Fully quit Claude Desktop (Cmd+Q) and reopen it, then reload this page.</div>
+    <div id="offline" class="offline">Can't reach the Wise server on port 4000. Start it with <code>npm run web</code>, or open Claude Desktop.</div>
+    <div id="outdated" class="offline">The server on port 4000 is an older version of this demo. Fully quit Claude Desktop (Cmd+Q) and reopen it, then reload this page.</div>
 
-  <div class="layout">
-    <div class="col col-main">
-      <section id="sec-approvals">
-        <div class="section-head"><h2 class="title-section">Needs your approval</h2><span id="pending-count"></span></div>
-        <div id="approvals-wrap"></div>
-      </section>
-      <section id="sec-activity">
-        <div class="section-head"><h2 class="title-section">Activity</h2></div>
-        <div id="activity"></div>
-      </section>
-    </div>
-    <div class="col col-side">
-      <section id="sec-balances">
-        <div class="section-head"><h2 class="title-section">Balances</h2></div>
-        <div id="balances" class="cards"></div>
-      </section>
-      <section id="sec-pass">
-        <div class="section-head"><h2 class="title-section">Claude's access</h2><span id="pass-badge" class="chip">Active</span></div>
-        <div id="pass"></div>
-      </section>
-    </div>
-  </div>
-
-  <!-- Pillars, like the three promises on the Wise for AI page, extended for payments. -->
-  <section class="pillars" aria-label="How the Agent Pass keeps you in control">
-    <div class="pillar">
-      <span class="pillar-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="8" r="4"/><path d="M3 20c0-3.3 3.1-6 7-6 1.3 0 2.5.3 3.5.8"/><path d="M19 14v6M16 17h6"/></svg></span>
-      <div><h3>Choose what Claude can do</h3><p>None, View, Draft or Act, for each kind of information. Draft and Act are new.</p></div>
-    </div>
-    <div class="pillar">
-      <span class="pillar-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg></span>
-      <div><h3>Money moves on your terms</h3><p>Every payment is checked against your limits on Wise's side, not by the AI.</p></div>
-    </div>
-    <div class="pillar">
-      <span class="pillar-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg></span>
-      <div><h3>Revoke at any time</h3><p>One tap turns Claude's access off, right here in the Wise app.</p></div>
-    </div>
-  </section>
-
-  <!-- Example prompts, like the coloured use-case cards on the Wise for AI page. Click to copy. -->
-  <section class="prompts">
-    <div class="section-head"><h2 class="title-section">Try asking Claude</h2><span class="hint">Click a card to copy it</span></div>
-    <div class="prompt-grid">
-      <button class="prompt green" data-copy="How much money do I have? Who are my recipients?"><b>Check your money</b><span>"How much money do I have? Who are my recipients?"</span></button>
-      <button class="prompt forest" data-copy="Pay Elisa €25 for the internet and send Jana €300."><b>Pay within your limits</b><span>"Pay Elisa €25 for the internet and send Jana €300."</span></button>
-      <button class="prompt blue" data-copy="Can you pay this invoice from Hikari Print?"><b>Catch a bad invoice</b><span>"Can you pay this invoice from Hikari Print?"</span></button>
-      <button class="prompt grey" data-copy="What payments are waiting for my approval?"><b>See what's waiting</b><span>"What payments are waiting for my approval?"</span></button>
-    </div>
-  </section>
-
-  <!-- The consent screen: Wise's permission levels, extended with Draft and Act for transfers. -->
-  <dialog id="consent" class="consent" aria-labelledby="consent-title">
-    <form method="dialog" id="consent-form">
-      <div class="consent-top">
-        <img class="logo" src="/assets/wise-logo-forest.svg" alt="Wise" />
-        <button type="button" class="close" data-close aria-label="Close">✕</button>
+    <section class="total">
+      <div class="total-label">Total balance</div>
+      <div class="total-row"><span id="total" class="total-amt">–</span>
+        <span class="round-btn" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10c2.5 3 5.5 4.5 9 4.5s6.5-1.5 9-4.5M7 13.5L5.5 16M12 14.5V17M17 13.5l1.5 2.5"/></svg></span>
+        <span class="round-btn" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 19h14M8 16v-4M12 16V8M16 16v-6"/></svg></span>
       </div>
-      <h2 id="consent-title" class="title-sub" tabindex="-1" autofocus>Claude wants to access your Wise account</h2>
-      <p class="subtitle">Choose what Claude can see and do. You can change this or revoke access at any time.</p>
-      <div class="profile-row"><img class="avatar-sm" src="/assets/avatar.png" alt="" /><div><b>Personal account</b><small>The only profile Claude can use</small></div><span class="chip">Selected</span></div>
+      <div class="actions">
+        <button class="pill pill-green pill-lg" data-act="consent">Permissions</button>
+        <a class="pill pill-light pill-lg" href="#sec-approvals">Approvals</a>
+        <a class="pill pill-light pill-lg" href="#sec-activity">Activity</a>
+        <span id="revoke-slot"></span>
+      </div>
+    </section>
 
-      <div class="perm">
-        <div class="perm-head"><b>Balances</b><span class="seg" data-perm="balances"></span></div>
-      </div>
-      <div class="perm">
-        <div class="perm-head"><b>Recipients</b><span class="seg" data-perm="recipients"></span></div>
-      </div>
-      <div class="perm">
-        <div class="perm-head"><b>Exchange rates</b><span class="seg" data-perm="rates"></span></div>
-      </div>
-      <div class="perm perm-main">
-        <div class="perm-head"><b>Transfers</b><span class="seg" data-perm="transfers"></span></div>
-        <p class="perm-help" id="transfers-help"></p>
-        <div class="perm-limits" id="perm-limits">
-          <label>Per payment, up to<span class="money-in"><span>€</span><input name="perPaymentLimitEUR" type="number" min="1" step="1" inputmode="numeric" /></span></label>
-          <label>Per month, up to<span class="money-in"><span>€</span><input name="monthlyLimitEUR" type="number" min="1" step="1" inputmode="numeric" /></span></label>
-          <p class="perm-note">Saved recipients only. New recipients and changed bank details always need your approval.</p>
+    <!-- Account cards: balances (green top), Agent Pass (yellow top), waiting for you (grey top). -->
+    <section class="acct-row" id="sec-balances">
+      <div class="acct">
+        <div class="acct-top green"><span>Your card <em>›</em></span><img src="/assets/wise-flag.svg" width="40" height="40" alt="" /></div>
+        <div class="acct-body">
+          <div class="acct-title"><b>Main account</b><span class="chev">›</span></div>
+          <div id="main-total" class="acct-sub"></div>
+          <div id="balances" class="ccy-grid"></div>
+          <span class="acct-chip"><svg viewBox="0 0 24 24"><path d="M3 9l9-5 9 5M5 10v8M10 10v8M14 10v8M19 10v8M3 20h18"/></svg>Account details</span>
         </div>
       </div>
-
-      <p class="consent-error" id="consent-error"></p>
-      <div class="btn-row">
-        <button type="button" class="btn btn-secondary" data-close>Cancel</button>
-        <button type="submit" class="btn btn-primary">Allow</button>
+      <div class="acct" data-act="consent" role="button" tabindex="0">
+        <div class="acct-top yellow"><span>Agent Pass</span><svg class="acct-icon" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <div class="acct-body" id="pass-card"></div>
       </div>
-    </form>
-  </dialog>
+      <div class="acct" onclick="location.hash='sec-approvals'">
+        <div class="acct-top grey"><span>Claude</span><svg class="acct-icon" viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z"/></svg></div>
+        <div class="acct-body" id="waiting-card"></div>
+      </div>
+    </section>
 
-  <footer>Demo with mock money. Not affiliated with or endorsed by Wise. · <button id="reset">Reset demo</button></footer>
-</main>
+    <!-- Info banner (like "Get ready to spend"). Filled by renderPass. -->
+    <section class="banner" id="hero-status"></section>
+
+    <div class="layout">
+      <div class="col col-main">
+        <section id="sec-approvals">
+          <div class="section-head"><h2 class="title-section">Needs your approval</h2><span id="pending-count"></span></div>
+          <div id="approvals-wrap"></div>
+        </section>
+        <section id="sec-activity">
+          <div class="section-head"><h2 class="title-section">Activity</h2></div>
+          <div id="activity"></div>
+        </section>
+      </div>
+      <div class="col col-side">
+        <section id="sec-pass">
+          <div class="section-head"><h2 class="title-section">Claude's access</h2><span id="pass-badge" class="chip">Active</span></div>
+          <div id="pass"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Example prompts. Click to copy, then paste into Claude. -->
+    <section class="prompts">
+      <div class="section-head"><h2 class="title-section">Try asking Claude</h2><span class="hint">Click a card to copy it</span></div>
+      <div class="prompt-grid">
+        <button class="prompt green" data-copy="How much money do I have? Who are my recipients?"><b>Check your money</b><span>"How much money do I have? Who are my recipients?"</span></button>
+        <button class="prompt yellow" data-copy="Pay Elisa €25 for the internet and send Jana €300."><b>Pay within your limits</b><span>"Pay Elisa €25 for the internet and send Jana €300."</span></button>
+        <button class="prompt blue" data-copy="Can you pay this invoice from Hikari Print?"><b>Catch a bad invoice</b><span>"Can you pay this invoice from Hikari Print?"</span></button>
+        <button class="prompt grey" data-copy="What payments are waiting for my approval?"><b>See what's waiting</b><span>"What payments are waiting for my approval?"</span></button>
+      </div>
+    </section>
+
+    <footer>Demo with mock money. Not affiliated with or endorsed by Wise. · <button id="reset">Reset demo</button></footer>
+  </div>
+</div>
+
+<!-- The consent screen: Wise's permission levels, extended with Draft and Act for transfers. -->
+<dialog id="consent" class="consent" aria-labelledby="consent-title">
+  <form method="dialog" id="consent-form">
+    <div class="consent-top">
+      <img class="logo" src="/assets/wise-logo-forest.svg" alt="Wise" />
+      <button type="button" class="close" data-close aria-label="Close">✕</button>
+    </div>
+    <h2 id="consent-title" class="title-sub" tabindex="-1" autofocus>Claude wants to access your Wise account</h2>
+    <p class="subtitle">Choose what Claude can see and do. You can change this or revoke access at any time.</p>
+    <div class="profile-row"><span class="me-avatar sm">AK</span><div><b>Personal account</b><small>The only profile Claude can use</small></div><span class="chip">Selected</span></div>
+
+    <div class="perm"><div class="perm-head"><b>Balances</b><span class="seg" data-perm="balances"></span></div></div>
+    <div class="perm"><div class="perm-head"><b>Recipients</b><span class="seg" data-perm="recipients"></span></div></div>
+    <div class="perm"><div class="perm-head"><b>Exchange rates</b><span class="seg" data-perm="rates"></span></div></div>
+    <div class="perm perm-main">
+      <div class="perm-head"><b>Transfers</b><span class="seg" data-perm="transfers"></span></div>
+      <p class="perm-help" id="transfers-help"></p>
+      <div class="perm-limits" id="perm-limits">
+        <label>Per payment, up to<span class="money-in"><span>€</span><input name="perPaymentLimitEUR" type="number" min="1" step="1" inputmode="numeric" /></span></label>
+        <label>Per month, up to<span class="money-in"><span>€</span><input name="monthlyLimitEUR" type="number" min="1" step="1" inputmode="numeric" /></span></label>
+        <p class="perm-note">Saved recipients only. New recipients and changed bank details always need your approval.</p>
+      </div>
+    </div>
+
+    <p class="consent-error" id="consent-error"></p>
+    <div class="btn-row">
+      <button type="button" class="btn btn-secondary" data-close>Cancel</button>
+      <button type="submit" class="btn btn-primary">Allow</button>
+    </div>
+  </form>
+</dialog>
 
 <script src="/app.js"></script>
 </body>

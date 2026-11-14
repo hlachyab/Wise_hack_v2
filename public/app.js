@@ -48,7 +48,8 @@ let prevBalances = null; // to flash a balance that changed
 
 function renderApprovals(drafts) {
   const pending = drafts.filter((d) => d.status === 'awaiting_user');
-  $('pending-count').innerHTML = pending.length ? `<span class="eyebrow" style="margin:0">${pending.length} waiting</span>` : '';
+  $('pending-count').innerHTML = pending.length ? `<span class="eyebrow">${pending.length} waiting</span>` : '';
+  $('nav-count').textContent = pending.length || '';
   $('approvals-wrap').innerHTML = pending.length
     ? pending.map((d) => approvalCard(d, !firstRender && !seenApprovals.has(d.id))).join('')
     : `<div class="empty"><span class="icon-btn ok glyph">✓</span>Nothing needs your approval. Payments Claude prepares that break a rule will appear here.</div>`;
@@ -61,33 +62,50 @@ function approvalCard(d, isNew) {
   const eur = d.amountEUR != null && d.currency !== 'EUR' ? `<span class="eur">≈ ${fmt(d.amountEUR, 'EUR')}</span>` : '';
   return `
     <div class="approval ${isNew ? 'new' : ''}">
-      <span class="eyebrow">${draftOnly ? 'Ready for you to send' : 'Claude is asking'}</span>
-      <div class="tx" style="padding:0 0 12px">
-        ${avatar(d.recipientName, d.iban ? d.iban.slice(0, 2) : '')}
-        <div class="meta"><b>${draftOnly ? 'Claude prepared a payment to' : 'Claude wants to pay'} ${esc(d.recipientName)}</b><small>${d.ibanMasked ? 'To account ' + esc(d.ibanMasked) : 'New recipient'}</small></div>
-      </div>
-      <div class="label">Recipient gets</div>
-      <div class="money"><span class="amt">${num(d.amount, d.currency)}</span>
-        <span class="ccy">${eur}${currencyFlag(d.currency, 24, 'ccy-dot')}${esc(d.currency)}</span></div>
-      <div class="panel">${esc(d.reason)}</div>
-      ${d.warnings.map((w) => `<div class="warn">⚠ ${esc(w)}</div>`).join('')}
-      ${d.note ? `<div class="note">Note: “${esc(d.note)}”</div>` : ''}
-      <span class="rule">${esc(d.rule)}</span>
-      <div class="btn-row">
-        <button class="btn btn-secondary" data-act="decline" data-id="${esc(d.id)}">Decline</button>
-        <button class="btn btn-primary" data-act="approve" data-id="${esc(d.id)}">${draftOnly ? 'Send' : 'Approve and send'}</button>
+      <div class="approval-top"><span>${draftOnly ? 'Ready for you to send' : 'Claude is asking'}</span><span>${timeAgo(d.createdAt)}</span></div>
+      <div class="approval-body">
+        <div class="tx" style="padding:0 0 12px">
+          ${avatar(d.recipientName, d.iban ? d.iban.slice(0, 2) : '')}
+          <div class="meta"><b>${draftOnly ? 'Claude prepared a payment to' : 'Claude wants to pay'} ${esc(d.recipientName)}</b><small>${d.ibanMasked ? 'To account ' + esc(d.ibanMasked) : 'New recipient'}</small></div>
+        </div>
+        <div class="label">Recipient gets</div>
+        <div class="money"><span class="amt">${num(d.amount, d.currency)}</span>
+          <span class="ccy">${eur}${currencyFlag(d.currency, 24, 'ccy-dot')}${esc(d.currency)}</span></div>
+        <div class="panel">${esc(d.reason)}</div>
+        ${d.warnings.map((w) => `<div class="warn">⚠ ${esc(w)}</div>`).join('')}
+        ${d.note ? `<div class="note">Note: “${esc(d.note)}”</div>` : ''}
+        <span class="rule">${esc(d.rule)}</span>
+        <div class="btn-row">
+          <button class="btn btn-secondary" data-act="decline" data-id="${esc(d.id)}">Decline</button>
+          <button class="btn btn-primary" data-act="approve" data-id="${esc(d.id)}">${draftOnly ? 'Send' : 'Approve and send'}</button>
+        </div>
       </div>
     </div>`;
 }
 
+/** "Claude" account card: what is waiting for you right now. */
+function renderWaiting(drafts) {
+  const pending = drafts.filter((d) => d.status === 'awaiting_user');
+  const sent = drafts.filter((d) => d.status === 'paid').length;
+  $('waiting-card').innerHTML = `
+    <div class="acct-title"><b>Waiting for you</b><span class="chev">›</span></div>
+    <div class="acct-big">${pending.length}</div>
+    <div class="acct-sub">${pending.length ? pending.slice(0, 2).map((d) => `${esc(d.recipientName)} · ${fmt(d.amount, d.currency)}`).join('<br>') : 'Nothing to approve'}</div>
+    <div class="acct-lines"><div><span>Sent through Claude</span><b>${sent}</b></div></div>`;
+}
+
+const RATES_PER_EUR = { EUR: 1, GBP: 0.85, JPY: 162 }; // same mock rates as the server
+
 function renderBalances(balances) {
+  const totalEUR = Object.entries(balances).reduce((t, [c, a]) => t + a / (RATES_PER_EUR[c] || 1), 0);
+  $('total').textContent = `${totalEUR.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR`;
+  $('main-total').textContent = fmt(balances.EUR ?? 0, 'EUR');
   $('balances').innerHTML = Object.entries(balances).map(([c, a]) => `
-    <div class="card-btn ${prevBalances && prevBalances[c] !== a ? 'flash' : ''}">
-      ${currencyFlag(c, 40, 'ccy-circle')}
-      <div><b>${num(a, c)}</b><small>${esc(NAMES[c] || c)}</small></div>
+    <div class="ccy-item ${prevBalances && prevBalances[c] !== a ? 'flash' : ''}">
+      ${currencyFlag(c, 40, 'ccy-dot')}<span>${fmt(a, c)}</span><span class="chev">›</span>
     </div>`).join('');
-  if (document.querySelector('.card-btn.flash')) {
-    setTimeout(() => document.querySelectorAll('.card-btn.flash').forEach((el) => el.classList.remove('flash')), 900);
+  if (document.querySelector('.ccy-item.flash')) {
+    setTimeout(() => document.querySelectorAll('.ccy-item.flash').forEach((el) => el.classList.remove('flash')), 900);
   }
   prevBalances = balances;
 }
@@ -116,15 +134,33 @@ function renderPass(p, recipients) {
     el.className = 'chip' + (on ? '' : ' off');
   };
   setChip($('pass-badge'), !p.revoked, 'Active', 'Revoked');
-  setChip($('conn'), !p.revoked, `Agent Pass · ${LEVELS[t].name}`, 'Claude access off');
+  $('conn').textContent = p.revoked ? 'Claude access off' : `Agent Pass · ${LEVELS[t].name}`;
+  $('conn').className = 'pill ' + (p.revoked ? 'off' : 'pill-green');
 
-  // Hero status pills, like "Connection established" / "Permissions enabled" on the Wise for AI page.
-  $('hero-status').innerHTML = p.revoked
-    ? `<span class="status-pill off"><i>✕</i>Claude's access is revoked</span>
-       <button class="btn btn-dark" data-act="restore">Restore access</button>`
-    : `<span class="status-pill"><i>✓</i>Claude connected</span>
-       <span class="status-pill"><i>⛨</i>Transfers: ${LEVELS[t].name}${t === 'act' ? ` · up to ${fmt(p.perPaymentLimitEUR, 'EUR')}` : ''}</span>
-       <button class="btn btn-dark" data-act="consent">Change permissions</button>`;
+  // Light-blue banner, like "Get ready to spend" on the Wise home screen.
+  const banner = $('hero-status');
+  banner.className = 'banner' + (p.revoked ? ' off' : '');
+  banner.innerHTML = p.revoked
+    ? `<span class="banner-icon"><svg viewBox="0 0 24 24"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></span>
+       <div><h3>Claude's access is revoked</h3><p>Claude can't see your account or move money until you restore it.</p>
+       <div class="btn-row"><button class="btn btn-teal" data-act="restore">Restore access</button></div></div>`
+    : `<span class="banner-icon"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z"/><path d="M18 15l.8 2 2 .8-2 .8L18 21l-.8-2.4-2-.8 2-.8z"/></svg></span>
+       <div><h3>Claude is connected to your Wise account</h3><p>${esc(TRANSFER_HELP[t])}${t === 'act' ? ` Up to ${fmt(p.perPaymentLimitEUR, 'EUR')} per payment.` : ''}</p>
+       <div class="btn-row"><button class="btn btn-teal" data-act="consent">Change permissions</button></div></div>`;
+  $('revoke-slot').innerHTML = p.revoked
+    ? `<button class="pill pill-light pill-lg" data-act="restore">Restore access</button>`
+    : `<button class="pill pill-light pill-lg" data-act="revoke">Revoke access</button>`;
+
+  // Yellow "Agent Pass" account card.
+  const pctCard = Math.min(100, (p.spentThisMonthEUR / p.monthlyLimitEUR) * 100);
+  $('pass-card').innerHTML = `
+    <div class="acct-title"><b>${p.revoked ? 'Revoked' : LEVELS[t].name}</b><span class="chev">›</span></div>
+    <div class="acct-sub">${p.revoked ? 'Claude has no access' : 'Transfers level for Claude'}</div>
+    <div class="acct-lines">
+      <div><span>Per payment</span><b>${fmt(p.perPaymentLimitEUR, 'EUR')}</b></div>
+      <div><span>This month</span><b>${fmt(p.spentThisMonthEUR, 'EUR')} / ${fmt(p.monthlyLimitEUR, 'EUR')}</b></div>
+    </div>
+    <div class="bar"><div style="width:${pctCard}%"></div></div>`;
 
   const level = (v) => `<span class="level ${v === 'none' || p.revoked ? 'off' : ''}">${p.revoked ? 'None' : LEVELS[v].name}</span>`;
   const pct = Math.min(100, (p.spentThisMonthEUR / p.monthlyLimitEUR) * 100);
@@ -259,6 +295,7 @@ function render(s) {
   renderApprovals(s.drafts);
   renderBalances(s.balances);
   renderPass(s.pass, s.recipients);
+  renderWaiting(s.drafts);
   renderActivity(s.activity, s.drafts);
   if (first && location.hash === '#consent') openConsent(); // direct link to the consent screen
 }
