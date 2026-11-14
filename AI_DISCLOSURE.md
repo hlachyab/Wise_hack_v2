@@ -5,7 +5,7 @@ This project was built during the Wise hackathon in Tallinn (theme "Max Ease") w
 ## Tools used
 
 - **Claude Code** (Anthropic, Claude Opus 5.5): AI coding assistant in the terminal.
-- **Claude Desktop** (Anthropic): the MCP client used in the live demo.
+- **Claude Desktop** (Anthropic): the MCP client used in the live demo, with the Gmail connector for the demo emails.
 - **Model Context Protocol TypeScript SDK** (`@modelcontextprotocol/sdk`), plus `zod` and `express`. These are open-source libraries, not AI.
 
 ## What was AI-assisted
@@ -19,6 +19,8 @@ This project was built during the Wise hackathon in Tallinn (theme "Max Ease") w
 | Visual design of `public/` and `ui/card.html` | Restyled by Claude Code using tokens, components and assets (logo, flags, icons) from the WiseStart Hackathon Figma kit, read via the Figma MCP server |
 | Plain-language reasons and tool descriptions | Drafted by Claude Code |
 | `demo/injection-invoice.txt` | Drafted by Claude Code (fictional invoice, mock IBAN) |
+| `whatsapp-mock/` (mock WhatsApp MCP server) and `demo/emails-for-ksenja.md` | Scenario by the team; code and fictional texts drafted by Claude Code (fake people, mock IBANs) |
+| `docs/screenshots/` | Captured automatically from the running demo |
 | `README.md`, `docs/HOW-IT-WORKS.md`, this file | Drafted by Claude Code |
 | `test/e2e.mjs` (end-to-end test of every rule and scenario over MCP) | Written by Claude Code |
 

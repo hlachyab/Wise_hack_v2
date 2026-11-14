@@ -102,12 +102,6 @@ const tool = (mcp, name, config, handler) =>
 const currency = z.enum(CURRENCIES);
 const readOnly = { readOnlyHint: true };
 
-const NEXT_STEP = {
-  ready: 'Allowed by the Agent Pass. You may now call confirm_payment with this draftId.',
-  awaiting_user: 'Waiting for the user. Tell them to approve or decline it in the Wise app within 5 minutes; approving sends it. You cannot approve it.',
-  blocked: 'Blocked by the Agent Pass. Explain the reason to the user. Do NOT retry or work around it.',
-};
-
 /** What the card shows for a batch: its payments, plus the trusted ones sent at once with it. */
 const batchView = (b) => ({
   batchId: b.id, title: b.title, status: b.status, createdAt: b.createdAt,
@@ -134,7 +128,7 @@ const OUTCOME_TEXT = { sends_now: 'Wise sends it at once (trusted)', needs_you: 
 // ---------------------------------------------------------------------------
 
 export function createMcpServer() {
-  const mcp = new McpServer({ name: 'wise-mcp', version: '0.2.0' }, { instructions: INSTRUCTIONS });
+  const mcp = new McpServer({ name: 'wise-mcp', version: '1.0.0' }, { instructions: INSTRUCTIONS });
   registerCard(mcp);
 
   tool(mcp, 'get_balances', {

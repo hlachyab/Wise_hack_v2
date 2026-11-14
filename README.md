@@ -23,6 +23,32 @@ Every request is checked against the pass **on Wise's side**, not by the AI. Eve
 
 ---
 
+## At a glance
+
+| You ask Claude… | …Claude shows a draft first | …you say yes, Wise does the rest |
+|---|---|---|
+| *"Send Jana the €40 I owe her, check WhatsApp for what I owe Lukas, and pay the bills Ksenja emailed me today."* | ![Draft card in Claude's chat](docs/screenshots/chat-draft.png) | ![Card after the yes](docs/screenshots/chat-sent.png) |
+
+| The Wise app: the payments that need you, in one tap | Wise stops the scam and shows why |
+|---|---|
+| ![Batch approval in the Wise app](docs/screenshots/batch.png) | ![Wise stopped a scam](docs/screenshots/scam.png) |
+
+| Connecting Claude, like Wise's MCP consent page today | Home: the Claude · Agent Pass card |
+|---|---|
+| ![Connect screen](docs/screenshots/connect.png) | ![Wise app home](docs/screenshots/home.png) |
+
+**What's in it**
+
+- **New consent levels.** *Draft* and *Act* next to Wise's *None* and *View*, with limits per payment, per month and per day, which recipients are trusted, currencies, and expiry (30 days at most).
+- **Two steps for every payment.** Claude shows a draft in the chat; only after your *yes* does it go to Wise. Trusted payments within your limits are sent at once.
+- **One tap for the rest.** Everything that needs you lands in the Wise app as **one batch**, confirmed with your fingerprint, the Wise app or an SMS code (mocked).
+- **Rules on Wise's side, not in the prompt.** Hard caps can't be passed even with approval, and Claude has no tool to approve, change the pass or change bank details.
+- **Fraud protection.** Changed bank details, prompt injection in invoices, unusual amounts and urgency raise the risk score. Accounts reported for scams are blocked outright, and the Wise app explains why.
+- **Works with your other tools.** In the demo Claude also reads Gmail and a (mock) WhatsApp. Wise checks every payment the same way, whatever it came from.
+- **Audit and control.** Every action has a plain-language reason in the activity log, approvals expire after 5 minutes, and one click revokes access.
+
+---
+
 ## Contents
 
 - [What you see](#what-you-see)
@@ -38,6 +64,8 @@ Every request is checked against the pass **on Wise's side**, not by the AI. Eve
 - [Reset](#reset)
 - [Troubleshooting](#troubleshooting)
 - [Open questions for Wise](#open-questions-for-wise)
+- [Design inspiration](#design-inspiration)
+- [Credits](#credits)
 
 For a step-by-step walk-through of the code, see **[docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md)**.
 
@@ -49,8 +77,8 @@ There are two screens, side by side in the live demo:
 
 | Claude Desktop (the assistant) | The "Wise app" at <http://localhost:4000> (you) |
 |---|---|
-| You chat with Claude. When it uses a Wise tool, a **Wise card** appears in the reply: balances, invoices, a quote, or a payment (or batch) with its status, fraud check, countdown and the steps *Prepared → Pass → You / Auto → Sent*. The card updates by itself when you approve. | A copy of the Wise web app home: total balance, your **Main account** next to a **Claude · Agent Pass** card (status, level, time left, what's waiting, this month's spend, today's payments, what Claude may do, its last action), **Needs your approval** cards with pop-ups, an activity log, **Claude's access**, and **Try asking Claude** cards you can click to copy the demo prompts. |
-| Claude can read, prepare payments and batches, add recipients (if allowed), and send what your pass allows. | Only here can you **connect** Claude, change the **consent screen**, **Approve** (after a mock fingerprint, Wise app or SMS check), **Decline**, or **Revoke access**. |
+| You chat with Claude. When it uses a Wise tool, a **Wise card** appears in the reply: balances, invoices, a quote, a **draft** (*Sends at once* / *Needs your approval* / *Blocked*), or a payment or batch with its status, fraud check and countdown. The card updates by itself when you approve. | A copy of the Wise web app home: total balance, your **Main account** next to a **Claude · Agent Pass** card (status, level, time left, what's waiting, this month's spend, today's payments, what Claude may do, its last action), **Wise stopped a scam** alerts that explain why, **Needs your approval** cards with pop-ups, an activity log, **Claude's access**, and **Try asking Claude** cards you can click to copy the demo prompts. |
+| Claude can read, **draft** payments in the chat, and after your *yes* send them to Wise, which pays what your pass allows and asks you for the rest. It can add recipients (if allowed). | Only here can you **connect** Claude, change the **consent screen**, **Approve** (after a mock fingerprint, Wise app or SMS check), **Decline**, or **Revoke access**. |
 
 ## Quick start
 
@@ -124,6 +152,8 @@ Logs: `~/Library/Logs/Claude/mcp-server-wise.log` (macOS), `%APPDATA%\Claude\log
 
 ## Demo script (3 minutes)
 
+> **Short on time?** Step 6 alone tells the whole story in about 90 seconds: the draft, the yes, trusted payments sent, one-tap batch, and a scam stopped.
+
 Before you start, click **Reset demo** at the bottom of the web page. A fresh demo starts **disconnected**, so the first thing you see is the connect screen.
 
 ### 0. Connect
@@ -153,7 +183,7 @@ The same screen also lets you choose:
 - **Currencies**: which currencies Claude may send.
 - **Payments a day**: how many payments Claude may send on its own each day.
 - **Access lasts**: 1 hour, 1 day, 1 week or 30 days (30 days at most, so access always runs out).
-- **Email invoices**: whether Claude may read invoices in your (mock) inbox.
+- **Email invoices**: whether Claude may read the built-in (mock) inbox. *Pay my bills* leaves it off, because in the demo Claude reads your real Gmail instead.
 - **Recipients: Add**: Claude may add new recipients; payments to them always ask you first.
 - **Batch payments**: Claude may send several payments as one request, which you pay with one tap.
 - **Search and add recipients**: the recipient list has a search box, a *Frequently used* group and *Add new*.
@@ -216,7 +246,7 @@ Paste [`demo/injection-invoice.txt`](demo/injection-invoice.txt) into Claude and
         ▼                                          ▼
  ┌──────────────────────── one Node process (index.js) ──────────────────┐
  │  src/mcp.js  10 tools             src/web.js  approve / decline /      │
- │  (read, prepare, confirm…)                    pass / connect / revoke  │
+ │  (read, draft, send…)                         pass / connect / revoke  │
  │            \                          /                                │
  │             └──► src/payments.js ◄───┘  ──► src/rules.js  (the pass)   │
  │                         │               ──► src/fraud.js  (risk score) │
@@ -226,7 +256,7 @@ Paste [`demo/injection-invoice.txt`](demo/injection-invoice.txt) into Claude and
 
 - **One process, two faces.** Claude Desktop starts `index.js`. It speaks MCP to Claude over stdin/stdout and also serves the web app on port 4000.
 - **The policy engine lives on the server.** Both sides go through `src/payments.js`, which asks `src/rules.js` for a decision (*allow*, *needs approval* or *block*) and `src/fraud.js` for a risk score. Claude's tools can prepare and send; only the web API can approve, decline, connect, change the pass or revoke.
-- **Checked twice.** The pass is checked when a payment is prepared and again when it is sent, so changing or revoking the pass also affects drafts that were already prepared.
+- **Checked twice.** The pass is checked when Claude drafts a payment and again when it is sent to Wise, so changing or revoking the pass also affects drafts you already saw.
 - **Approve means send.** When you approve in the Wise app, the payment goes out straight away. Claude doesn't need to do anything more.
 - **Shared state file.** Claude Desktop sometimes starts the server twice, so state lives in `.wise-state.json` and every operation reads, changes and saves it.
 - **Cards in the chat.** Every tool result includes `structuredContent`, which Claude Desktop renders with `ui/card.html` (MCP Apps). The card can't approve anything. Hosts without MCP Apps just show the text.
@@ -242,7 +272,7 @@ wise-mcp/
 │   ├── mcp.js             The 10 MCP tools, permission checks and Claude's instructions
 │   ├── card.js            Serves ui/card.html as the MCP Apps resource, embeds its assets
 │   ├── web.js             Express app: static page + user-only JSON API, port takeover
-│   ├── payments.js        Actions: quote, prepare, confirm, batches, recipients, approve, decline, pass, revoke…
+│   ├── payments.js        Actions: quote, draft, send to Wise, batches, recipients, approve, decline, pass, revoke…
 │   ├── rules.js           The Agent Pass rules engine and prompt-injection detection
 │   ├── fraud.js           Wise's fraud check: a risk score for every request
 │   ├── state.js           Mock data, permission levels, shared state file, tx(), expiry, activity log
@@ -257,11 +287,15 @@ wise-mcp/
 ├── ui/                    The in-chat card
 │   ├── card.html          Single self-contained MCP Apps page
 │   └── assets/            Logo, flags, bullets, stepper, Claude icon (embedded as data URIs)
+├── whatsapp-mock/
+│   └── index.js           Mock WhatsApp MCP server with fake chats (Lukas asks for €36.50)
+├── demo/
+│   ├── emails-for-ksenja.md   The three emails for demo step 6 (two real bills, one scam)
+│   └── injection-invoice.txt  Fake invoice for the bonus scenario
 ├── test/e2e.mjs           End-to-end test over the real MCP protocol (npm test)
-├── demo/injection-invoice.txt   Fake invoice for the bonus scenario
-├── demo/emails-for-ksenja.md   The three emails for demo step 6 (two real-looking bills, one scam)
-├── whatsapp-mock/index.js      Mock WhatsApp MCP server with fake chats (Lukas asks for €36.50)
-├── docs/HOW-IT-WORKS.md   Detailed explanation of everything
+├── docs/
+│   ├── HOW-IT-WORKS.md    Detailed explanation of everything
+│   └── screenshots/       The images in this README
 └── AI_DISCLOSURE.md       Which parts were built with AI help
 ```
 

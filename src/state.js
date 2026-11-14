@@ -26,7 +26,6 @@ export const PERMISSION_LEVELS = {
   transfers: ['none', 'view', 'draft', 'act'],
   batches: ['off', 'on'],              // on: Claude may send several payments as one request, confirmed with one tap
 };
-export const TRANSFER_LEVELS = PERMISSION_LEVELS.transfers;
 /** How long access lasts, picked on the consent screen. 30 days is the maximum. */
 export const EXPIRY_MS = { '1h': 3600e3, '1d': 86400e3, '1w': 7 * 86400e3, '30d': 30 * 86400e3 };
 

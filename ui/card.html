@@ -7,7 +7,10 @@
   renders it in a sandboxed iframe and sends it each tool result's structuredContent.
   The `kind` field picks the layout (see render()):
     balances, recipients, quote, invoices   read results
-    payment, batch                          a draft or batch and its status (watch() keeps it live)
+    draft                                   draft_payments: step 1, not sent to Wise yet
+    payment, batch                          send_to_wise results and their status (watch() keeps
+                                            them live); a batch also lists trusted payments sent
+                                            at once (sentNow) and blocked ones (blockedNow)
     approvals                               what is waiting for the user
     recipient_added                         add_recipient result
     denied                                  a refused call (not connected, revoked, expired, None)

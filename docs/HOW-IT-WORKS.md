@@ -242,14 +242,16 @@ Some details:
 
 The score is capped at 100. **60+ is high, 30+ is medium, below that low.** Medium or high turns an *allow* into *needs approval* (`fraud.review`). The signals are shown on the approval card, in the batch rows and in Claude's card. The fraud check never approves anything by itself.
 
+**Reported scam accounts.** `reportedAccount()` in `src/rules.js` is a mock of Wise's fraud database: IBANs other users reported as scams (in the demo, the fake *Tallinn Power* account `LT47 •••• 0937`). Rule 2b blocks any payment to one, even under the limits and even if you would approve it, and `addRecipient()` refuses to save one. The blocked draft keeps its fraud signals and a `scam` field (why the account was reported, and the masked IBAN of the real saved recipient it pretends to be), so the Wise app can explain the block (section 13).
+
 The "instructions aimed at an AI" patterns live in one place, `looksLikeInjection()` in `src/rules.js`. The same function also adds a visible **prompt-injection warning** to the draft.
 
 ## 9. Bills from email: invoices, new recipients, batches
 
-With the **Pay my bills** preset (Email invoices: View, Recipients: Add, Batch payments: On):
+With the **Pay my bills** preset (Recipients: Add, Batch payments: On, EUR and JPY, Jana and Elisa trusted):
 
-1. **`check_invoices`** returns the unpaid invoices from the mock inbox in `state.inbox`: vendor, amount, due date, IBAN, reference, and the `recipientId` if the vendor is saved.
-2. **`add_recipient`** lets Claude save a vendor that isn't a recipient yet (Nordic Cloud OÜ). New recipients are marked *Added by Claude* and always ask before Claude pays them (`autoPay: false`). Claude can't change saved bank details.
+1. **Where the bills come from.** In the live demo Claude reads them from your **Gmail** (the Gmail connector in Claude Desktop) and a friend's request from **WhatsApp** (`whatsapp-mock/index.js`, a separate mock MCP server with fake chats). Wise doesn't need to know: every payment goes through the same checks. As a backup, **`check_invoices`** returns the same three emails from the built-in mock inbox in `state.inbox` (turn on *Email invoices: View*).
+2. **`add_recipient`** lets Claude save someone who isn't a recipient yet (Lukas, from WhatsApp). New recipients are marked *Added by Claude* and always ask before Claude pays them (`autoPay: false`). Claude can't change saved bank details.
 3. **`draft_payments`** shows all the payments as one draft in the chat, and Claude asks you. After your yes, **`send_to_wise`** sends trusted ones at once and puts the rest in one batch; blocked ones are left out. Payments that pass `invoiceId` mark that invoice paid when they are sent.
 4. **In the Wise app**, the batch card lists every payment with where it goes and why. Risky ones (changed bank details, injection text, high fraud risk) start **unticked**. You tap **Pay N with one tap**, confirm with your ID, and they're sent together.
 
@@ -341,6 +343,7 @@ The protections are layered, and each layer works even if the one above it fails
 - **Total balance** and pill actions: *Permissions*, *Approvals*, *Activity*, *Revoke access*.
 - **Two cards in one row**: *Main account* (balances with flags) and **Claude · Agent Pass**. The Agent Pass card shows a status pill, the Transfers level and time left, three tiles (*Waiting for you*, *This month* with a bar, *Today* with dots), chips for what Claude may do, and Claude's last action. It lays itself out by its own width with CSS container queries; under 900px the cards stack.
 - **Light-blue banner** saying whether Claude is connected, with *Change permissions*.
+- **Wise stopped a scam** (shown only when there is one): a red card per blocked scam with the amount struck through, the saved account next to the one in the request, every reason, a risk bar and *What happens now*. A red pop-up announces it; *Got it* folds it away (remembered in the browser), and clicking the scam in the activity log opens it again.
 - **Needs your approval**: single payment cards and batch cards, each with a 5-minute countdown and the fraud check.
 - **Activity**: one row per event, with a Claude badge on what Claude did. The full sentence is in the row's tooltip.
 - **Claude's access**: every permission level, limits, monthly spend, saved recipients (*Auto* or *Asks*), currencies.
@@ -369,7 +372,7 @@ The protections are layered, and each layer works even if the one above it fails
 | `src/card.js` | The MCP Apps resource: URI, MIME type, UI metadata, asset embedding, and `cardFor(draft)`. |
 | `src/web.js` | `createWebApp()` serves `public/` and the JSON API (listed at the top of the file). `action()` wraps each POST: load, run, save, reply, and turn an `ActionError` into a 400/404/409. `startWebServer()` handles the busy-port retry. |
 | `src/payments.js` | All actions. Claude's side: `getQuote`, `draftPayments`, `sendToWise` (with `preparePayment` and `groupWaiting`), `confirmPayment`, `addRecipient`. Your side: `approveDraft`, `declineDraft`, `approveBatch`, `declineBatch`, `updatePass`, `connectClaude`, `revokeAccess`, `restoreAccess`, `resetDemo`. `send()` is the one place money moves. |
-| `src/rules.js` | `decide()` (the rules), `STATUS_FOR` (decision → status), the fixed refusals, `looksLikeInjection()` and `injectionWarnings()`. |
+| `src/rules.js` | `decide()` (the rules), `hardCapReason()`, `reportedAccount()` (the mock scam list), `STATUS_FOR` (decision → status), the fixed refusals, `looksLikeInjection()` and `injectionWarnings()`. |
 | `src/fraud.js` | `assessFraud()`: the risk score and its signals. |
 | `src/state.js` | `createInitialState()` (mock data and default pass), `PERMISSION_LEVELS`, `EXPIRY_MS`, `APPROVAL_TTL_MS`, `state`, `load` / `save` / `resetState`, `tx()`, `expireStale()`, `outdated`, and `addActivity()` (newest first, at most 100 entries). |
 | `src/money.js` | `RATES_PER_EUR`, fees, `round2`, `toEUR`, `fmt` (€1,234.50 / ¥18,500), `normIban`, `maskIban`, `ibanCountry`. |
@@ -392,9 +395,11 @@ The protections are layered, and each layer works even if the one above it fails
 | File | What's inside |
 |---|---|
 | `test/e2e.mjs` | End-to-end test (section 17) |
+| `whatsapp-mock/index.js` | Mock WhatsApp MCP server (`list_chats`, `read_chat`) with fake chats, used in demo step 6 |
+| `demo/emails-for-ksenja.md` | The three demo emails: two legit bills and one scam |
 | `demo/injection-invoice.txt` | Fictional invoice for the bonus scenario, with a changed IBAN and hidden injection text |
+| `docs/screenshots/` | The images in the README |
 | `AI_DISCLOSURE.md` | Which parts were built with AI help |
-| `.impeccable/` | Settings for the design-lint tool used during development |
 | `.wise-state.json` | Runtime state (git-ignored; created automatically) |
 
 ## 15. Mock data
@@ -406,7 +411,9 @@ All of it lives in `createInitialState()` (`src/state.js`) and `src/money.js`. A
 | Persona | Omar Haddad |
 | Balances | EUR 2,400 · GBP 300 · JPY 120,000 |
 | Saved recipients | Elisa (home internet), Jana Michiels (family), Tallinn Power Co. (electricity), Hikari Print Co. (supplier, JPY), Marko Tamm, Sofia Rossi, Studio Lumi Ltd (GBP). Each has `uses` (for *Frequently used*) and `avgEUR` (for the fraud check). |
-| Inbox | Tallinn Power €64.20 · Elisa €25 · Nordic Cloud OÜ €49 (not a saved recipient) · Hikari ¥18,500 (changed IBAN and hidden instructions) |
+| Inbox | Elisa €25 (internet) · Hikari ¥18,000 (ink) · a fake "Tallinn Power" €189 to a reported scam account. Same as `demo/emails-for-ksenja.md`. |
+| WhatsApp (mock) | Lukas Berg asks for €36.50 for dinner, with his (fake) IBAN |
+| Scam list | `LT47 3250 0794 5512 0937`, "reported by 14 Wise users for fake invoices" |
 | Agent Pass | Not connected · Transfers View · €200 per payment · €500 per month · 10 payments a day · EUR, GBP, JPY · 30 days |
 | Rates | 1 EUR = 0.85 GBP = 162 JPY |
 | Fee | 0.43% + €0.30 (in the source currency), only when converting |

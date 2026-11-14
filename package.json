@@ -1,6 +1,6 @@
 {
   "name": "wise-agent-pass",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Hackathon demo: Wise Agent Pass, a trust layer that extends Wise MCP from read-only to safe agentic payments (View, Draft, Act, approvals, revoke).",
   "type": "module",
   "main": "index.js",

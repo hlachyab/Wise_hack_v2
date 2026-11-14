@@ -5,6 +5,7 @@
 // user; hard settings block outright. The monthly and daily limits are hard caps: once reached,
 // nothing more is sent, not even with the user's approval (see hardCapReason, also used when the
 // user approves).
+// Accounts on Wise's list of reported scam accounts are blocked outright (reportedAccount).
 
 import { isExpired, sentTodayCount, state } from './state.js';
 import { fmt, maskIban, normIban, toEUR } from './money.js';

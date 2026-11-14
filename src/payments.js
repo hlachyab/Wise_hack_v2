@@ -5,14 +5,13 @@
 // (draftPayments, nothing reaches Wise). Only after the user says yes does Claude send it to Wise
 // (sendToWise), which creates the payments below. Trusted ones are sent at once.
 //
-// Payment lifecycle in Wise:
-//   prepare ─┬─> ready ──────── confirm_payment (Claude) ──┐
-//            ├─> awaiting_user ─┬─ Approve (user) ─────────┴─> paid
-//            │                  ├─ Decline (user) ─> declined
-//            │                  └─ no answer in 5 min ─> expired   (state.js expireStale)
-//            └─> blocked
-//   confirm_payment re-checks the pass at send time, so a "ready" draft can still move to
-//   awaiting_user or blocked if the user changed their pass in the meantime.
+// Payment lifecycle in Wise (after the user's yes):
+//   preparePayment ─┬─> ready ──────── sent at once by sendToWise ──┐
+//                   ├─> awaiting_user ─┬─ Approve (user) ───────────┴─> paid
+//                   │                  ├─ Decline (user) ─> declined
+//                   │                  └─ no answer in 5 min ─> expired   (state.js expireStale)
+//                   └─> blocked        (a rule, a hard cap, or a reported scam account)
+//   Every check runs again at send time, so a pass changed after the chat draft still counts.
 //
 // A batch groups the waiting payments of one request (and of requests in the 2 minutes before)
 // so the user confirms them with one tap: awaiting_user -> paid | declined | expired.

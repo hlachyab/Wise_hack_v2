@@ -15,7 +15,7 @@ const URGENT = /\b(urgent|immediately|asap|today only|pay today|final notice|rig
 
 /**
  * Score one payment request. Signals and points:
- *   recipient not saved +25 · bank details differ from saved +45 · recipient added by Claude +15
+ *   account reported to Wise for scams +100 (rules.js also blocks it) · recipient not saved +25 · bank details differ from saved +45 · recipient added by Claude +15
  *   amount over 3x the usual for this recipient +25 · AI instructions in the text +40
  *   urgency words +15 · 6 or more requests from Claude in 2 minutes +20
  * Returns { score 0-100, level 'low' | 'medium' (30+) | 'high' (60+), signals: [text] }.
