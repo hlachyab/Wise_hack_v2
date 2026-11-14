@@ -230,12 +230,17 @@
   </form>
 </dialog>
 
-<!-- Identity check before any payment is approved (mock fingerprint / Smart-ID). -->
+<!-- Identity check before any payment is approved (mock fingerprint, Wise app or SMS code). -->
 <dialog id="verify" class="consent verify" aria-labelledby="verify-title">
   <div class="consent-top"><img class="logo" src="/assets/wise-logo-forest.svg" alt="Wise" /><button type="button" class="close" data-vclose aria-label="Cancel">✕</button></div>
   <h2 id="verify-title" class="title-sub">Confirm it's you</h2>
   <p class="subtitle" id="verify-what"></p>
   <div class="verify-list" id="verify-list"></div>
+  <div class="vtabs" id="verify-tabs" role="tablist">
+    <button type="button" class="vtab on" data-method="finger">Fingerprint</button>
+    <button type="button" class="vtab" data-method="app">Wise app</button>
+    <button type="button" class="vtab" data-method="sms">SMS code</button>
+  </div>
   <div class="verify-pane" id="pane-finger">
     <button type="button" class="finger" id="finger" aria-label="Scan fingerprint">
       <svg viewBox="0 0 64 64"><path d="M20 26a12 12 0 0 1 24 0v6"/><path d="M14 30v-4a18 18 0 0 1 36 0v10"/><path d="M26 44V26a6 6 0 0 1 12 0v12c0 6 2 10 4 12"/><path d="M32 26v18c0 5 2 9 5 12"/><path d="M20 34v6c0 6 2 11 6 15"/><path d="M44 42c0 3 1 6 2 8"/></svg>
@@ -243,13 +248,20 @@
     </button>
     <p class="verify-hint" id="finger-hint">Touch the sensor to confirm</p>
   </div>
-  <div class="verify-pane" id="pane-smartid" hidden>
-    <div class="smartid-code"><small>Smart-ID verification code</small><b id="smartid-code">0000</b></div>
-    <p class="verify-hint" id="smartid-hint">Check the code matches in your Smart-ID app, then enter your PIN there.</p>
+  <div class="verify-pane" id="pane-app" hidden>
+    <div class="phone"><img src="/assets/wise-flag.svg" width="28" height="28" alt="" /><b>Approve payment?</b><span class="phone-btn">Approve</span></div>
+    <p class="verify-hint" id="app-hint"></p>
+    <p class="waiting-line"><span class="pulse-dot"></span>Waiting for your phone</p>
+  </div>
+  <div class="verify-pane" id="pane-sms" hidden>
+    <p class="verify-hint" style="margin-top:0">We sent a 6-digit code to <b>+372 •••• 4821</b></p>
+    <input id="sms-input" class="sms-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" aria-label="SMS code" />
+    <p class="consent-error" id="sms-error"></p>
+    <p class="demo-code">Demo code: <b id="sms-demo"></b></p>
   </div>
   <div class="verified" id="verified" hidden><span>✓</span><div><b>Identity confirmed</b><small id="verified-how"></small></div></div>
   <div class="btn-row">
-    <button type="button" class="btn btn-secondary" id="verify-switch">Use Smart-ID</button>
+    <button type="button" class="btn btn-secondary" data-vclose>Cancel</button>
     <button type="button" class="btn btn-primary" id="verify-go" disabled>Continue</button>
   </div>
 </dialog>

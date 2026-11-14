@@ -9,6 +9,7 @@ import { fmt, maskIban, normIban, toEUR } from './money.js';
 
 /** Draft status for each decision. */
 export const STATUS_FOR = { allow: 'ready', needs_approval: 'awaiting_user', block: 'blocked' };
+// Later statuses: paid, declined (by the user), expired (no answer within 5 minutes).
 
 export const REVOKED = {
   decision: 'block',

@@ -173,7 +173,7 @@ Set the pass to the **Pay my bills** preset (Email invoices: View, Recipients: A
 
 > Check my email for new invoices and pay them.
 
-Claude calls `check_invoices` and finds 4 invoices. Nordic Cloud OÜ isn't a saved recipient, so Claude adds it with `add_recipient`. Then it sends **one batch** with `prepare_batch`. A pop-up appears in the Wise app. The batch card shows where each payment goes and why. The Hikari invoice has changed bank details and hidden instructions, so it starts **unticked**. Click **Pay 3 with one tap**, confirm with your **fingerprint** (or **Smart-ID**), then **Continue**. The three invoices are paid and drop out of the inbox.
+Claude calls `check_invoices` and finds 4 invoices. Nordic Cloud OÜ isn't a saved recipient, so Claude adds it with `add_recipient`. Then it sends **one batch** with `prepare_batch`. A pop-up appears in the Wise app. The batch card shows where each payment goes and why. The Hikari invoice has changed bank details and hidden instructions, so it starts **unticked**. Click **Pay 3 with one tap**, confirm with your **fingerprint** (or the **Wise app** on your phone, or an **SMS code**), then **Continue**. The three invoices are paid and drop out of the inbox.
 
 ### Bonus: a prompt-injection invoice
 
@@ -252,7 +252,7 @@ wise-mcp/
 | `add_recipient` | Saves a new recipient. Payments to them always ask you first, until you turn on auto-pay. | Recipients: Add |
 | `prepare_batch` | Up to 10 payments as **one request**. Each is checked against the pass; blocked ones are left out. You check each one and pay them all with one tap. | Batch payments: One tap |
 
-There is deliberately **no tool** to approve payments, change saved bank details or change the pass. Approving always takes your fingerprint or Smart-ID (mocked) in the Wise app. When access is revoked or expired, every tool is refused.
+There is deliberately **no tool** to approve payments, change saved bank details or change the pass. Approving always takes your fingerprint, a Wise app approval or an SMS code (mocked). Requests you don't answer expire after **5 minutes**. When access is revoked or expired, every tool is refused.
 
 ## Agent Pass rules
 
@@ -271,11 +271,23 @@ Checked in this order; the first match wins.
 | 7 | Would go over the monthly limit (€500) | **needs your approval** | `limit.monthly` |
 | 7b | Claude already sent its daily maximum (Act) | **needs your approval** | `limit.daily_count` |
 | 7c | Recipient set to "always ask" (Act) | **needs your approval** | `pass.recipient_ask` |
+| – | Wise's **fraud check** scores the request medium or high risk (see below) | **needs your approval** | `fraud.review` |
 | – | Part of a batch and otherwise allowed | **needs your approval** (one tap for the whole batch) | `batch.one_tap` |
 | 8 | Within the rules, but Transfers is Draft | **needs your approval** (one tap to send) | `pass.draft` |
 | 9 | Otherwise | **allow** | `within_pass` |
 
 "Needs your approval" becomes the draft status `awaiting_user`, "block" becomes `blocked`, and "allow" becomes `ready`. A note that looks like instructions to an AI adds a **prompt-injection warning** to the draft, but never changes the decision.
+
+**Fraud check (extra layer).** Every request Claude sends to Wise also gets a risk score (`src/fraud.js`) from these signals:
+- changed bank details;
+- an unsaved recipient, or one Claude added;
+- an amount much higher than you usually send that person;
+- instructions aimed at an AI, or pressure to hurry, in the payment text;
+- many requests in a short time.
+
+Medium or high risk means it never goes through automatically, and the signals are shown on the approval card, in the batch and in Claude's card.
+
+**5-minute window.** A payment or batch waiting for you expires after 5 minutes without an answer (status `expired`, nothing sent). Approval cards and pop-ups show a countdown.
 
 ## Web API
 

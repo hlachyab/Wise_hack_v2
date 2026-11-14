@@ -11,9 +11,11 @@ import { ROOT } from './paths.js';
 
 const STATE_FILE = process.env.WISE_STATE_FILE || path.join(ROOT, '.wise-state.json');
 const MAX_ACTIVITY = 100;
+/** Payments and batches waiting for the user expire after this long. */
+export const APPROVAL_TTL_MS = 5 * 60 * 1000;
 
 /** Bump this when the shape of the state changes, so an old state file is replaced on load. */
-const STATE_VERSION = 5; // keep API_VERSION in public/app.js the same
+const STATE_VERSION = 6; // keep API_VERSION in public/app.js the same
 
 /** Agent Pass levels for each area, from least to most power. */
 export const PERMISSION_LEVELS = {
@@ -34,13 +36,13 @@ export function createInitialState() {
     balances: { EUR: 2400, GBP: 300, JPY: 120000 },
     // uses = how often the user paid them (for "Frequently used"); addedBy = 'you' or 'claude'.
     recipients: {
-      elisa: recipient('elisa', 'Elisa', 'EUR', 'EE47 1000 0010 2014 5685', 'Home internet', 14),
-      jana: recipient('jana', 'Jana Michiels', 'EUR', 'BE71 0961 2345 6769', 'Family', 9),
-      tallinnpower: recipient('tallinnpower', 'Tallinn Power Co.', 'EUR', 'EE38 2200 2210 2014 7731', 'Electricity', 6),
-      hikari: recipient('hikari', 'Hikari Print Co.', 'JPY', 'JP12 0001 1111 2222', 'Supplier', 3),
-      marko: recipient('marko', 'Marko Tamm', 'EUR', 'EE12 1010 2200 3300 4455', 'Flatmate', 2),
-      sofia: recipient('sofia', 'Sofia Rossi', 'EUR', 'IT60 X054 2811 1010 0000 0123 456', 'Yoga classes', 1),
-      lumi: recipient('lumi', 'Studio Lumi Ltd', 'GBP', 'GB29 NWBK 6016 1331 9268 19', 'Design work', 1),
+      elisa: recipient('elisa', 'Elisa', 'EUR', 'EE47 1000 0010 2014 5685', 'Home internet', 14, 25),
+      jana: recipient('jana', 'Jana Michiels', 'EUR', 'BE71 0961 2345 6769', 'Family', 9, 150),
+      tallinnpower: recipient('tallinnpower', 'Tallinn Power Co.', 'EUR', 'EE38 2200 2210 2014 7731', 'Electricity', 6, 60),
+      hikari: recipient('hikari', 'Hikari Print Co.', 'JPY', 'JP12 0001 1111 2222', 'Supplier', 3, 110),
+      marko: recipient('marko', 'Marko Tamm', 'EUR', 'EE12 1010 2200 3300 4455', 'Flatmate', 2, 50),
+      sofia: recipient('sofia', 'Sofia Rossi', 'EUR', 'IT60 X054 2811 1010 0000 0123 456', 'Yoga classes', 1, 40),
+      lumi: recipient('lumi', 'Studio Lumi Ltd', 'GBP', 'GB29 NWBK 6016 1331 9268 19', 'Design work', 1, 200),
     },
     // A mock email inbox with invoices, for check_invoices.
     inbox: [
@@ -77,8 +79,9 @@ export function createInitialState() {
   };
 }
 
-function recipient(id, name, currency, iban, note, uses = 0, addedBy = 'you') {
-  return { id, name, currency, iban, note, uses, addedBy };
+// avgEUR = a typical payment to them, used by the fraud check to spot unusual amounts.
+function recipient(id, name, currency, iban, note, uses = 0, avgEUR = null, addedBy = 'you') {
+  return { id, name, currency, iban, note, uses, avgEUR, addedBy };
 }
 
 function invoice(id, vendor, from, subject, amount, currency, iban, reference, recipientId, dueInDays) {
@@ -96,6 +99,23 @@ export function load() {
   } catch {
     state = createInitialState();
     save();
+  }
+  expireStale();
+}
+
+/** Payments and batches the user didn't answer within APPROVAL_TTL_MS expire. Nothing is sent. */
+function expireStale() {
+  const cutoff = Date.now() - APPROVAL_TTL_MS;
+  const old = (x) => x.status === 'awaiting_user' && Date.parse(x.createdAt) < cutoff;
+  for (const b of Object.values(state.batches)) {
+    if (!old(b)) continue;
+    b.status = 'expired';
+    addActivity({ kind: 'expired', batchId: b.id, decision: 'expired', rule: 'approval.expired', text: `The batch "${b.title}" expired after 5 minutes without your answer. Nothing was sent.` });
+  }
+  for (const d of Object.values(state.drafts)) {
+    if (!old(d)) continue;
+    d.status = 'expired';
+    if (!d.batchId) addActivity({ kind: 'expired', draftId: d.id, decision: 'expired', rule: 'approval.expired', text: `The request to pay ${d.recipientName} expired after 5 minutes without your answer. Nothing was sent.` });
   }
 }
 

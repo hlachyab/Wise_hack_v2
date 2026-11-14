@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from './paths.js';
 import { ibanCountry } from './money.js';
+import { APPROVAL_TTL_MS } from './state.js';
 
 export const CARD_URI = 'ui://wise/card.html';
 const CARD_MIME = 'text/html;profile=mcp-app';
@@ -69,6 +70,8 @@ export const cardFor = (d) => ({
   amountEUR: d.amountEUR,
   note: d.note,
   sentByUser: !!d.sentByUser,
+  fraud: d.fraud || null,
+  expiresAt: d.status === 'awaiting_user' ? new Date(Date.parse(d.createdAt) + APPROVAL_TTL_MS).toISOString() : null,
   invoiceId: d.invoiceId || null,
   batchId: d.batchId || null,
 });

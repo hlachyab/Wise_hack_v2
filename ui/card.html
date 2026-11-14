@@ -280,18 +280,19 @@
     awaiting_user: ['wait', 'Needs your approval'],
     declined: ['no', '✕ Declined'],
     blocked: ['no', '✕ Blocked'],
+    expired: ['no', '⏱ Expired'],
   };
 
   // Stepper: Prepared · Pass · You (or Auto) · Sent  (0..3)
   function stepper(s) {
-    const needsYou = s.status === 'awaiting_user' || s.status === 'declined' || s.sentByUser;
+    const needsYou = s.status === 'awaiting_user' || s.status === 'declined' || s.status === 'expired' || s.sentByUser;
     let at = 1, fail = false;
     const lab = ['done', 'done', '', ''];
     if (s.status === 'ready') { at = 1; lab[1] = 'current'; }
     if (s.status === 'awaiting_user') { at = 2; lab[2] = 'current'; }
     if (s.status === 'paid') { at = 3; lab[2] = 'done'; lab[3] = 'current'; }
     if (s.status === 'blocked') { fail = true; at = 1; lab[1] = 'fail'; }
-    if (s.status === 'declined') { fail = true; at = 2; lab[2] = 'fail'; }
+    if (s.status === 'declined' || s.status === 'expired') { fail = true; at = 2; lab[2] = 'fail'; }
     const pct = (at / 3) * 100;
     const youLabel = needsYou ? 'You' : 'Auto';
     return `<div class="stepper">
@@ -359,6 +360,7 @@
       paid: s.sentByUser ? 'You sent' : 'Claude sent',
       awaiting_user: draftOnly ? 'Claude prepared' : 'Claude wants to send',
       declined: 'You declined',
+      expired: 'Not answered in time',
       blocked: 'Claude tried to send',
     }[s.status] || 'Payment';
 
@@ -370,10 +372,15 @@
     (s.warnings || []).forEach((w) => bullets.push(bullet('neg', `<strong>Possible prompt injection.</strong> ${esc(w)}`)));
     if (s.status === 'awaiting_user') bullets.push(bullet('pos', draftOnly ? '<strong>One tap in the Wise app</strong> sends it.' : `<strong>Claude can't approve this.</strong> Only you can, in the Wise app.`));
     if (s.status === 'blocked' || s.status === 'declined') bullets.push(bullet('pos', `<strong>No money moved.</strong> Claude won't retry this payment.`));
+    if (s.status === 'expired') bullets.push(bullet('neg', '<strong>Expired after 5 minutes</strong> without your answer. No money moved.'));
+    if (s.status === 'awaiting_user') bullets.push(bullet('warn', `<strong>Waiting for you</strong> for <span data-expires="${Date.parse(s.expiresAt || 0)}">5:00</span> more.`));
+    if (s.fraud) bullets.push(s.fraud.level === 'low'
+      ? bullet('pos', '<strong>Fraud check: low risk.</strong> Nothing unusual.')
+      : bullet(s.fraud.level === 'high' ? 'neg' : 'warn', `<strong>Fraud check: ${esc(s.fraud.level)} risk.</strong> ${esc(s.fraud.signals.join('. '))}.`));
     if (s.status === 'paid' && s.balanceLeft != null) bullets.push(bullet('pos', `<strong>${fmt(s.balanceLeft, s.currency)}</strong> ${esc(s.currency)} balance left.`));
 
     let action = '';
-    if (s.status === 'awaiting_user') action = `<button class="btn" data-act="open">${draftOnly ? 'Send in Wise app' : 'Review in Wise app'}</button>${hostCaps.serverTools ? '<div class="foot">This card updates when you decide.</div>' : ''}`;
+    if (s.status === 'awaiting_user') action = `<button class="btn" data-act="open">${draftOnly ? 'Send in Wise app' : 'Review in Wise app'}</button><div class="foot">This card updates when you decide.</div>`;
     if (readOnly) action = `<button class="btn" data-act="open">Change permissions in Wise app</button>`;
 
     const note = s.note ? ' · ' + esc(s.note.slice(0, 48)) + (s.note.length > 48 ? '…' : '') : '';
@@ -384,31 +391,41 @@
           <div class="amount">${fmt(s.amount, s.currency)}<span class="ccy">${esc(s.currency)}</span></div>
           ${s.amountEUR != null && s.currency !== 'EUR' ? `<div class="sub-eur">≈ ${fmt(s.amountEUR, 'EUR')}</div>` : ''}
         </div>
-        <span class="status ${cls}">${s.status === 'awaiting_user' && hostCaps.serverTools ? '<span class="pulse"></span>' : ''}${label}</span>
+        <span class="status ${cls}">${label}</span>
       </div>
       <div class="row">${avatar(s.recipient, s.country)}
         <div class="meta"><b>${esc(s.recipient)}</b><small>${esc(s.ibanMasked || 'New recipient')}${note}</small></div></div>
       ${stepper(s)}
       <div class="bullets">${bullets.join('')}</div>
-      <span class="rule">${esc(s.rule)}</span>
       ${action}${foot}`;
     watch(s);
   }
 
-  // While a payment waits for the user, watch it so the card updates live when they approve/decline.
-  function watch(s) {
+  // While a payment or batch waits for the user, ask the server every 2 seconds, so the card
+  // updates by itself when they approve, decline, or let it expire. Stops if the host refuses.
+  function watch(s, isBatch) {
     clearInterval(pollTimer);
-    if (s.status !== 'awaiting_user' || !hostCaps.serverTools) return;
+    if (s.status !== 'awaiting_user') return;
+    const args = isBatch ? { batchId: s.batchId } : { draftId: s.draftId };
     const started = Date.now();
     pollTimer = setInterval(async () => {
-      if (Date.now() - started > 10 * 60 * 1000) return clearInterval(pollTimer);
+      if (Date.now() - started > 6 * 60 * 1000) return clearInterval(pollTimer);
       try {
-        const r = await request('tools/call', { name: 'payment_status', arguments: { draftId: s.draftId } });
+        const r = await request('tools/call', { name: 'payment_status', arguments: args });
         const next = r?.structuredContent;
-        if (next && next.status !== 'awaiting_user') { clearInterval(pollTimer); renderPayment(next); }
-      } catch { /* host may not allow; ignore */ }
+        if (next && next.status !== 'awaiting_user') {
+          clearInterval(pollTimer);
+          isBatch ? renderBatch(next) : renderPayment(next);
+        }
+      } catch { clearInterval(pollTimer); }
     }, 2000);
   }
+
+  // Countdown chips ("4:12") for the 5-minute approval window.
+  setInterval(() => document.querySelectorAll('[data-expires]').forEach((el) => {
+    const sec = Math.max(0, Math.round((Number(el.dataset.expires) - Date.now()) / 1000));
+    el.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  }), 1000);
 
   function renderBalances(s) {
     const totalEUR = Object.entries(s.balances).reduce((t, [c, a]) => t + a / (RATES_PER_EUR[c] || 1), 0);
@@ -446,17 +463,35 @@
     const rows = s.items.map((d) => `<div class="row" style="margin-top:12px;${d.status === 'blocked' ? 'opacity:.55' : ''}">${avatar(d.recipient, d.country)}
         <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>${d.status === 'blocked' ? 'Blocked: ' : ''}${esc(d.ibanMasked || 'New recipient')} · ${esc(d.reason)}</small></div></div>`).join('');
     const warn = s.items.some((d) => (d.warnings || []).length || /^hard_stop/.test(d.rule));
+    const done = s.status === 'paid', gone = s.status === 'declined' || s.status === 'expired';
+    const paid = s.items.filter((d) => d.status === 'paid');
+    const paidTotals = {};
+    paid.forEach((d) => { paidTotals[d.currency] = (paidTotals[d.currency] || 0) + d.amount; });
+    if (done || gone) {
+      const sum = Object.entries(paidTotals).map(([c, a]) => fmt(Math.round(a * 100) / 100, c)).join(' + ') || '–';
+      root.innerHTML = header(done ? 'green' : 'red', 'Batch') + `
+        <div class="eyebrow">${done ? 'You paid' : s.status === 'expired' ? 'Not answered in time' : 'You declined'}</div>
+        <div class="hero"><div><div class="amount" style="font-size:30px">${done ? esc(sum) : '–'}</div><div class="sub-eur">${esc(s.title)}</div></div>
+          <span class="status ${done ? 'ok' : 'no'}">${done ? `✓ ${paid.length} sent` : s.status === 'expired' ? '⏱ Expired' : '✕ Declined'}</span></div>
+        ${s.items.map((d) => `<div class="row" style="margin-top:12px;${d.status === 'paid' ? '' : 'opacity:.55'}">${avatar(d.recipient, d.country)}
+          <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>${{ paid: '✓ Sent', declined: 'Not paid', blocked: 'Blocked', expired: 'Expired' }[d.status] || esc(d.status)}${d.status === 'paid' ? ' · ' + esc(d.ibanMasked || '') : ''}</small></div></div>`).join('')}
+        <div class="bullets">${done ? bullet('pos', '<strong>Confirmed with your ID</strong> in the Wise app.') : bullet('pos', '<strong>No money moved.</strong>')}</div>${foot}`;
+      return;
+    }
     root.innerHTML = header(waiting.length ? 'yellow' : 'red', 'Batch') + `
       <div class="eyebrow">Claude prepared ${s.items.length} payments</div>
       <div class="hero"><div><div class="amount" style="font-size:30px">${esc(total)}</div><div class="sub-eur">${esc(s.title)}</div></div>
         <span class="status ${waiting.length ? 'wait' : 'no'}">${waiting.length ? `${waiting.length} waiting for you` : 'Blocked'}</span></div>
       ${rows}
       <div class="bullets">
-        ${bullet('pos', '<strong>One tap pays them all</strong>, after your fingerprint or Smart-ID in the Wise app.')}
+        ${bullet('pos', '<strong>One tap pays them all</strong>, after your fingerprint, Wise app or SMS code.')}
+        ${s.expiresAt ? bullet('warn', `<strong>Waiting for you</strong> for <span data-expires="${Date.parse(s.expiresAt)}">5:00</span> more.`) : ''}
+        ${s.items.some((d) => d.fraud && d.fraud.level !== 'low') ? bullet('warn', '<strong>Fraud check</strong> flagged some payments. Check them in the Wise app.') : ''}
         ${warn ? bullet('warn', 'Some payments have new or changed bank details. They start unticked.') : ''}
         ${bullet('pos', "<strong>Claude can't confirm this batch.</strong> Only you can.")}
       </div>
-      ${waiting.length ? '<button class="btn" data-act="open">Review in Wise app</button>' : ''}${foot}`;
+      ${waiting.length ? '<button class="btn" data-act="open">Review in Wise app</button><div class="foot">This card updates when you decide.</div>' : ''}${foot}`;
+    watch(s, true);
   }
 
   // add_recipient

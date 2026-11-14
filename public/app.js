@@ -52,6 +52,27 @@ const seenApprovals = new Set(); // only cards that appear after page load slide
 let firstRender = true;
 let prevBalances = null; // to flash a balance that changed
 
+const APPROVAL_TTL_MS = 5 * 60 * 1000; // same as the server: requests expire after 5 minutes
+
+/** "4:32 left" chip; a 1-second ticker keeps it current without re-rendering. */
+const countdown = (createdAt) => `<span class="countdown" data-expires="${Date.parse(createdAt) + APPROVAL_TTL_MS}"></span>`;
+function tickCountdowns() {
+  document.querySelectorAll('[data-expires]').forEach((el) => {
+    const s = Math.max(0, Math.round((Number(el.dataset.expires) - Date.now()) / 1000));
+    el.textContent = s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} left` : 'Expired';
+    el.classList.toggle('soon', s <= 60);
+  });
+}
+setInterval(tickCountdowns, 1000);
+
+/** Wise's fraud check result: a calm line when low risk, the signals when not. */
+const FRAUD_TEXT = { low: 'Low risk', medium: 'Medium risk', high: 'High risk' };
+const fraudBox = (f) => !f ? '' : `
+  <div class="fraud ${f.level}">
+    <span class="fraud-dot"></span>
+    <div><b>Fraud check: ${FRAUD_TEXT[f.level]}</b>${f.signals.length && f.level !== 'low' ? `<ul>${f.signals.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '<small>Nothing unusual about this request.</small>'}</div>
+  </div>`;
+
 let lastDrafts = [];
 let lastBatches = [];
 
@@ -80,8 +101,9 @@ function renderApprovals(drafts, batches = []) {
 // Batch approval: see where each payment goes, untick any, pay the rest with one tap
 // ---------------------------------------------------------------------------
 
-const unticked = new Map(); // batchId -> Set of draft ids the user unticked (survives re-renders)
-const riskyByDefault = (d) => d.rule.startsWith('hard_stop') || d.warnings.length > 0;
+const unticked = new Map();
+const riskyFraud = (d) => d.fraud && d.fraud.level === 'high'; // batchId -> Set of draft ids the user unticked (survives re-renders)
+const riskyByDefault = (d) => d.rule.startsWith('hard_stop') || d.warnings.length > 0 || riskyFraud(d);
 
 function batchSelection(b) {
   if (!unticked.has(b.id)) {
@@ -115,12 +137,13 @@ function batchCard(b, isNew) {
           <small>${d.ibanMasked ? 'To ' + esc(d.ibanMasked) : 'New recipient'}${invoiceRef(d)}${d.note ? ' · “' + esc(d.note.slice(0, 40)) + (d.note.length > 40 ? '…' : '') + '”' : ''}</small>
           <small class="brow-why">${blocked ? 'Blocked: ' : ''}${esc(d.reason)}</small>
           ${d.warnings.map((w) => `<small class="brow-warn">⚠ ${esc(w)}</small>`).join('')}
+          ${d.fraud && d.fraud.level !== 'low' ? `<small class="brow-fraud ${d.fraud.level}">Fraud check: ${d.fraud.level} risk · ${esc(d.fraud.signals.join(' · '))}</small>` : ''}
         </span>
       </label>`;
   };
   return `
     <div class="approval batch ${isNew ? 'new' : ''}" data-batch-card="${esc(b.id)}">
-      <div class="approval-top"><span>Batch from Claude · ${waiting.length} payment${waiting.length === 1 ? '' : 's'}</span><span>${timeAgo(b.createdAt)}</span></div>
+      <div class="approval-top"><span>Batch from Claude · ${waiting.length} payment${waiting.length === 1 ? '' : 's'}</span>${countdown(b.createdAt)}</div>
       <div class="approval-body">
         <div class="batch-title"><b>${esc(b.title)}</b><small>Check where each payment goes. Untick anything you don't want to pay.</small></div>
         <div class="brows">${items.map(row).join('')}</div>
@@ -155,7 +178,7 @@ function approvalCard(d, isNew) {
   const eur = d.amountEUR != null && d.currency !== 'EUR' ? `<span class="eur">≈ ${fmt(d.amountEUR, 'EUR')}</span>` : '';
   return `
     <div class="approval ${isNew ? 'new' : ''}">
-      <div class="approval-top"><span>${draftOnly ? 'Ready for you to send' : 'Claude is asking'}</span><span>${timeAgo(d.createdAt)}</span></div>
+      <div class="approval-top"><span>${draftOnly ? 'Ready for you to send' : 'Claude is asking'}</span>${countdown(d.createdAt)}</div>
       <div class="approval-body">
         <div class="tx" style="padding:0 0 12px">
           ${avatar(d.recipientName, d.iban ? d.iban.slice(0, 2) : '')}
@@ -167,7 +190,7 @@ function approvalCard(d, isNew) {
         <div class="panel">${esc(d.reason)}</div>
         ${d.warnings.map((w) => `<div class="warn">⚠ ${esc(w)}</div>`).join('')}
         ${d.note ? `<div class="note">Note: “${esc(d.note)}”</div>` : ''}
-        <span class="rule">${esc(d.rule)}</span>
+        ${fraudBox(d.fraud)}
         <div class="btn-row">
           <button class="btn btn-secondary" data-act="decline" data-id="${esc(d.id)}">Decline</button>
           <button class="btn btn-primary" data-act="approve" data-id="${esc(d.id)}">${draftOnly ? 'Send' : 'Approve and send'}</button>
@@ -469,7 +492,7 @@ function summaryHtml(b) {
   }
   if (t === 'draft' || t === 'act') asks.push('New recipients or changed bank details');
   cannot.push(b.permissions.recipients === 'add' ? 'Change saved bank details or these settings' : 'Add recipients or change these settings');
-  cannot.push('Approve a payment: that always takes your fingerprint or Smart-ID');
+  cannot.push('Approve a payment: that always takes your fingerprint, Wise app or SMS code');
   const line = (cls, title, items) => items.length ? `<div class="sum ${cls}"><b>${title}</b><ul>${items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul></div>` : '';
   return line('can', 'Claude can', can) + line('ask', 'Claude asks you first', asks) + line('cannot', 'Claude can never', cannot) +
     `<div class="sum-foot">Access ends in ${EXPIRY[b.expiry]} (30 days at most). You can revoke it any time.</div>`;
@@ -540,7 +563,7 @@ function notifyApproval(d) {
   el.className = 'toast';
   el.dataset.id = d.id;
   el.innerHTML = `
-    <div class="toast-top"><span>${draftOnly ? 'Ready for you to send' : 'Claude is asking'}</span><button class="toast-x" aria-label="Dismiss">✕</button></div>
+    <div class="toast-top"><span>${draftOnly ? 'Ready for you to send' : 'Claude is asking'}</span><span class="toast-right">${countdown(d.createdAt)}<button class="toast-x" aria-label="Dismiss">✕</button></span></div>
     <div class="toast-body">
       ${avatar(d.recipientName, d.iban ? d.iban.slice(0, 2) : '')}
       <div class="meta"><b>${esc(d.recipientName)} · ${fmt(d.amount, d.currency)}</b><small>${esc(d.reason)}</small></div>
@@ -569,7 +592,7 @@ function notifyBatch(b) {
   el.className = 'toast';
   el.dataset.id = b.id;
   el.innerHTML = `
-    <div class="toast-top"><span>Batch from Claude</span><button class="toast-x" aria-label="Dismiss">✕</button></div>
+    <div class="toast-top"><span>Batch from Claude</span><span class="toast-right">${countdown(b.createdAt)}<button class="toast-x" aria-label="Dismiss">✕</button></span></div>
     <div class="toast-body">
       <span class="icon-btn glyph">${waiting.length}</span>
       <div class="meta"><b>${esc(b.title)} · ${totalLine(waiting)}</b><small>${esc(list(waiting.map((d) => d.recipientName)))}. Check each one, then pay all with one tap.</small></div>
@@ -582,7 +605,7 @@ function notifyBatch(b) {
 }
 
 // ---------------------------------------------------------------------------
-// Identity check (mock): fingerprint, or Smart-ID with a verification code
+// Identity check (mock): fingerprint, Wise app approval, or SMS code
 // ---------------------------------------------------------------------------
 
 const verifyDlg = $('verify');
@@ -600,31 +623,49 @@ function verify(what, drafts) {
   return new Promise((resolve) => { verifyDone = resolve; });
 }
 
-let smartTimer = null;
+let appTimer = null;
+let smsCode = '';
+const METHODS = ['finger', 'app', 'sms'];
+
 function setMethod(m) {
-  clearTimeout(smartTimer);
+  clearTimeout(appTimer);
   verifyDlg.dataset.method = m;
-  $('pane-finger').hidden = m !== 'finger';
-  $('pane-smartid').hidden = m !== 'smartid';
+  document.querySelectorAll('.vtab').forEach((t) => t.classList.toggle('on', t.dataset.method === m));
+  for (const x of METHODS) $(`pane-${x}`).hidden = x !== m;
   $('verified').hidden = true;
+  $('verify-tabs').hidden = false;
   $('verify-go').disabled = true;
   $('finger').classList.remove('scanning', 'ok');
   $('finger-hint').textContent = 'Touch the sensor to confirm';
-  $('verify-switch').hidden = false;
-  $('verify-switch').textContent = m === 'finger' ? 'Use Smart-ID' : 'Use fingerprint';
-  if (m === 'smartid') {
-    $('smartid-code').textContent = String(1000 + Math.floor(Math.random() * 9000));
-    $('smartid-hint').textContent = 'Check the code matches in your Smart-ID app, then enter your PIN there.';
-    smartTimer = setTimeout(() => verified('Smart-ID'), 2600); // mock: the app confirms by itself
+  if (m === 'app') {
+    $('app-hint').textContent = 'We sent a request to the Wise app on your phone. Tap Approve there.';
+    appTimer = setTimeout(() => verified('Wise app'), 2800); // mock: the phone approves by itself
+  }
+  if (m === 'sms') {
+    smsCode = String(100000 + Math.floor(Math.random() * 900000));
+    $('sms-input').value = '';
+    $('sms-demo').textContent = smsCode;
+    $('sms-error').textContent = '';
+    setTimeout(() => $('sms-input').focus(), 50);
   }
 }
 
+$('sms-input').addEventListener('input', () => {
+  const v = $('sms-input').value.replace(/\D/g, '').slice(0, 6);
+  $('sms-input').value = v;
+  if (v.length < 6) { $('sms-error').textContent = ''; return; }
+  if (v === smsCode) verified('SMS code');
+  else $('sms-error').textContent = "That code doesn't match. Try again.";
+});
+document.querySelectorAll('.vtab').forEach((t) => t.addEventListener('click', () => setMethod(t.dataset.method)));
+
 function verified(how) {
+  clearTimeout(appTimer);
   $('finger').classList.add('ok');
-  $('pane-finger').hidden = $('pane-smartid').hidden = true;
+  for (const x of METHODS) $(`pane-${x}`).hidden = true;
+  $('verify-tabs').hidden = true;
   $('verified').hidden = false;
   $('verified-how').textContent = `${how} · just now`;
-  $('verify-switch').hidden = true;
   $('verify-go').disabled = false;
   $('verify-go').focus();
 }
@@ -635,9 +676,8 @@ $('finger').addEventListener('click', () => {
   $('finger-hint').textContent = 'Scanning…';
   setTimeout(() => verified('Fingerprint'), 1100);
 });
-$('verify-switch').addEventListener('click', () => setMethod(verifyDlg.dataset.method === 'finger' ? 'smartid' : 'finger'));
 const finishVerify = (ok) => {
-  clearTimeout(smartTimer);
+  clearTimeout(appTimer);
   if (verifyDlg.open) verifyDlg.close();
   verifyDone?.(ok);
   verifyDone = null;
@@ -729,6 +769,7 @@ function activityLook(a) {
     case 'revoked': return { icon: '⏻', cls: 'no glyph', label: 'Access revoked' };
     case 'restored': return { icon: '↺', cls: 'glyph', label: a.rule === 'pass.connected' ? 'Connected' : 'Access restored' };
     case 'recipient': return { icon: '+', cls: 'glyph', label: 'New recipient' };
+    case 'expired': return { icon: '⏱', cls: 'glyph', label: 'Expired · nothing sent', muted: true };
     case 'prepared':
       if (a.decision === 'needs_approval') return { icon: '!', cls: 'wait glyph', label: 'Waiting for you' };
       if (a.decision === 'block') return { icon: '✕', cls: 'no glyph', label: 'Blocked', muted: true };
@@ -745,13 +786,11 @@ function renderActivity(activity, drafts) {
         const d = a.draftId ? draftsById[a.draftId] : null;
         const title = d ? d.recipientName : a.batchId ? 'Batch of payments' : 'Claude';
         const amount = d ? `<span class="amount ${look.muted ? 'muted' : ''}">${num(d.amount, d.currency)} ${esc(d.currency)}</span>` : '';
-        return `<div class="tx">
+        return `<div class="tx" title="${esc(a.text)}">
           <span class="icon-btn ${look.cls}">${look.icon}</span>
           <div class="meta">
             <div class="head"><b>${esc(title)}</b>${amount}</div>
             <small>${esc(look.label)} · ${timeAgo(a.ts)}</small>
-            <p>${esc(a.text)}</p>
-            ${a.rule ? `<span class="rule">${esc(a.rule)}</span>` : ''}
           </div>
         </div>`;
       }).join('')
@@ -761,6 +800,7 @@ function renderActivity(activity, drafts) {
 function render(s) {
   const first = !lastPass;
   renderApprovals(s.drafts, s.batches);
+  tickCountdowns();
   renderBalances(s.balances);
   renderPass(s.pass, s.recipients, s.drafts);
   renderConnect(s.pass);
@@ -774,7 +814,7 @@ function render(s) {
 
 let lastKey = '';
 
-const API_VERSION = 5; // must match STATE_VERSION in src/state.js
+const API_VERSION = 6; // must match STATE_VERSION in src/state.js
 
 async function poll() {
   let s;
@@ -809,7 +849,7 @@ async function post(url, body) {
 }
 
 const ACTIONS = {
-  // Approving always takes an ID check first (mock fingerprint / Smart-ID).
+  // Approving always takes an ID check first (mock fingerprint, Wise app or SMS code).
   approve: async (id) => {
     const d = lastDrafts.find((x) => x.id === id);
     if (!d || !(await verify(`Send ${fmt(d.amount, d.currency)} to ${d.recipientName}`, [d]))) return;

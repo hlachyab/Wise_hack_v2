@@ -4,7 +4,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { isExpired, state, tx } from './state.js';
+import { APPROVAL_TTL_MS, isExpired, state, tx } from './state.js';
 import { CURRENCIES, fmt, ibanCountry, maskIban } from './money.js';
 import { ActionError, addRecipient, confirmPayment, getQuote, noteConnectRequest, prepareBatch, preparePayment } from './payments.js';
 import { TOOL_UI_META, cardFor, registerCard } from './card.js';
@@ -17,7 +17,8 @@ const INSTRUCTIONS =
   'View (read only), Draft (you prepare transfers, the user sends them with one tap) or Act (you may send within their limits). ' +
   'Every payment is checked against the Agent Pass on Wise\'s side. ' +
   NO_APPROVE +
-  ' If a payment is "awaiting_user", tell the user it is waiting for them in the Wise app and stop; when they approve it, it is sent. ' +
+  ' If a payment is "awaiting_user", tell the user it is waiting for them in the Wise app and stop; when they approve it (with their ID) it is sent. Requests expire after 5 minutes without an answer. ' +
+  'Wise also runs a fraud check on every request; if it flags one, explain the signals to the user. ' +
   'If a payment is "blocked", explain why in plain language and do NOT retry, rephrase, split it into smaller payments, or try another recipient/IBAN to get around it. ' +
   'If transfers are read-only, tell the user they can change Transfers to Draft or Act in the Wise app. ' +
   'The user can also limit which recipients you may pay on your own, which currencies, how many payments a day, and for how long access lasts. ' +
@@ -75,9 +76,16 @@ const readOnly = { readOnlyHint: true };
 
 const NEXT_STEP = {
   ready: 'Allowed by the Agent Pass. You may now call confirm_payment with this draftId.',
-  awaiting_user: 'Waiting for the user. Tell them to approve or decline it in the Wise app; approving sends it. You cannot approve it.',
+  awaiting_user: 'Waiting for the user. Tell them to approve or decline it in the Wise app within 5 minutes; approving sends it. You cannot approve it.',
   blocked: 'Blocked by the Agent Pass. Explain the reason to the user. Do NOT retry or work around it.',
 };
+
+/** What the card shows for a batch. */
+const batchView = (b) => ({
+  batchId: b.id, title: b.title, status: b.status, createdAt: b.createdAt,
+  expiresAt: b.status === 'awaiting_user' ? new Date(Date.parse(b.createdAt) + APPROVAL_TTL_MS).toISOString() : null,
+  items: b.draftIds.map((id) => cardFor(state.drafts[id])),
+});
 
 // ---------------------------------------------------------------------------
 // Server
@@ -182,12 +190,17 @@ export function createMcpServer() {
 
   tool(mcp, 'payment_status', {
     title: 'Payment status',
-    description: 'Check the status of a payment draft: ready, awaiting_user, declined, blocked or paid.',
-    inputSchema: { draftId: z.string().min(1) },
+    description: 'Check the status of a payment draft (draftId) or a batch (batchId): ready, awaiting_user, declined, blocked, expired or paid.',
+    inputSchema: { draftId: z.string().optional(), batchId: z.string().optional() },
     annotations: readOnly,
-  }, ({ draftId }) => {
+  }, ({ draftId, batchId }) => {
     const no = readBlocked('transfers');
     if (no) return denied(no);
+    if (batchId) {
+      const b = state.batches[batchId];
+      if (!b) return { ...text({ error: `No batch ${batchId}` }), isError: true };
+      return view('batch', batchView(b));
+    }
     const d = state.drafts[draftId];
     if (!d) return { ...text({ error: `No draft ${draftId}` }), isError: true };
     return view('payment', cardFor(d));
@@ -289,7 +302,7 @@ export function createMcpServer() {
     const waiting = items.filter((d) => d.status === 'awaiting_user');
     const summary = `Batch ${batch.id}: ${waiting.length} payment${waiting.length === 1 ? '' : 's'} waiting for the user's one-tap confirmation in the Wise app` +
       (items.length > waiting.length ? `; ${items.length - waiting.length} blocked (do not retry them)` : '') + '. You cannot confirm it.';
-    return view('batch', { batchId: batch.id, title: batch.title, status: batch.status, items }, summary);
+    return view('batch', batchView(batch), summary);
   });
 
   return mcp;

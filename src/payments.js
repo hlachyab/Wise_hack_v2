@@ -12,6 +12,7 @@
 import { randomUUID } from 'node:crypto';
 import { state, addActivity, resetState, sentTodayCount, today, EXPIRY_MS, PERMISSION_LEVELS } from './state.js';
 import { decide, injectionWarnings, STATUS_FOR } from './rules.js';
+import { assessFraud } from './fraud.js';
 import { CURRENCIES, FEE_FIXED_EUR, FEE_PERCENT, RATES_PER_EUR, fmt, maskIban, normIban, round2, toEUR } from './money.js';
 import { log } from './log.js';
 
@@ -59,6 +60,11 @@ export function preparePayment({ recipientId, amount, currency, iban, note, invo
   const id = String(recipientId).trim().toLowerCase();
   const saved = state.recipients[id];
   let result = decide({ recipientId: id, amount, currency, iban });
+  // Extra layer: Wise's fraud check. A suspicious request never goes through automatically.
+  const fraud = result.decision === 'block' ? null : assessFraud({ recipientId: id, amount, currency, iban, note });
+  if (fraud && fraud.level !== 'low' && result.decision === 'allow') {
+    result = { decision: 'needs_approval', rule: 'fraud.review', reason: `Wise's fraud check flagged this request (${fraud.level} risk), so you need to check it yourself.` };
+  }
   if (batchId && result.decision === 'allow') {
     result = { decision: 'needs_approval', rule: 'batch.one_tap', reason: `${result.reason} Part of a batch, so you confirm it together with the others.` };
   }
@@ -78,6 +84,7 @@ export function preparePayment({ recipientId, amount, currency, iban, note, invo
     rule: result.rule,
     reason: result.reason,
     warnings: injectionWarnings(note),
+    fraud,
     invoiceId: invoiceId && state.inbox.some((i) => i.id === invoiceId) ? invoiceId : null,
     batchId: batchId || null,
   };
@@ -135,6 +142,8 @@ export function confirmPayment(draftId) {
       return { ok: false, draft: d, error: 'Payment not sent. It is waiting for the user, who can approve and send it with one tap in the Wise app. You cannot approve it.' };
     case 'declined':
       return { ok: false, draft: d, error: 'Payment not sent. The user declined it in the Wise app. Do not retry it.' };
+    case 'expired':
+      return { ok: false, draft: d, error: 'Payment not sent. The user did not answer within 5 minutes, so the request expired. Ask the user before preparing it again.' };
     case 'blocked':
       return { ok: false, draft: d, error: `Payment not sent. It was blocked by the Agent Pass: ${d.reason} Do not retry it.` };
   }

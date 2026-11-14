@@ -190,6 +190,21 @@ check('pay all with one tap -> both paid, invoices marked paid',
 check('paid invoices drop out of check_invoices', (await call('check_invoices')).json.invoices.length === 2);
 check('user can add a recipient in the app', (await fetch(`http://localhost:${PORT}/api/recipients`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Test Person', iban: 'DE89 3704 0044 0532 0130 00', currency: 'EUR' }) })).ok);
 
+// --- Fraud check and the 5-minute approval window ---
+await setPass({ permissions: { transfers: 'act' }, allowedCurrencies: ['EUR', 'GBP', 'JPY'], dailyCountLimit: 50, monthlyLimitEUR: 5000, autoPay: { elisa: true } });
+p = await call('prepare_payment', { recipientId: 'elisa', amount: 150, currency: 'EUR' });
+check('fraud: €150 to Elisa (usually €25) -> fraud.review, not automatic', p.json.status === 'awaiting_user' && p.json.rule === 'fraud.review' && p.card.fraud.level === 'medium');
+p = await call('prepare_payment', { recipientId: 'elisa', amount: 20, currency: 'EUR' });
+check('fraud: a normal €20 to Elisa is low risk and allowed', p.json.status === 'ready' && p.card.fraud.level === 'low');
+const stale = (await call('prepare_payment', { recipientId: 'jana', amount: 300, currency: 'EUR' })).card.draftId;
+const raw2 = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+raw2.drafts[stale].createdAt = new Date(Date.now() - 6 * 60 * 1000).toISOString(); // 6 minutes ago
+fs.writeFileSync(STATE_FILE, JSON.stringify(raw2));
+p = await call('payment_status', { draftId: stale });
+check('no answer within 5 minutes -> expired', p.card.status === 'expired');
+check('an expired request cannot be sent', (await call('confirm_payment', { draftId: stale })).isError);
+check('payment_status works for a batch', (await call('payment_status', { batchId: bt.card.batchId })).card.status === 'paid');
+
 // --- Revoke: the kill switch ---
 await api('/api/revoke', 'POST');
 p = await call('prepare_payment', { recipientId: 'elisa', amount: 10, currency: 'EUR' });
