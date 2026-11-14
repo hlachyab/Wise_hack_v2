@@ -13,11 +13,13 @@ const STATE_FILE = process.env.WISE_STATE_FILE || path.join(ROOT, '.wise-state.j
 const MAX_ACTIVITY = 100;
 
 /** Bump this when the shape of the state changes, so an old state file is replaced on load. */
-const STATE_VERSION = 3; // keep API_VERSION in public/app.js the same
+const STATE_VERSION = 4; // keep API_VERSION in public/app.js the same
 
 /** Agent Pass levels, from least to most power. */
 export const READ_LEVELS = ['none', 'view'];
 export const TRANSFER_LEVELS = ['none', 'view', 'draft', 'act'];
+/** How long access lasts, picked on the consent screen. */
+export const EXPIRY_MS = { '1h': 3600e3, '1d': 86400e3, '30d': 30 * 86400e3, never: null };
 
 export function createInitialState() {
   return {
@@ -37,7 +39,13 @@ export function createInitialState() {
       perPaymentLimitEUR: 200,
       monthlyLimitEUR: 500,
       allowedCurrencies: ['EUR', 'GBP', 'JPY'],
+      // Per saved recipient: true = Claude may pay them on its own (within limits), false = always ask.
+      autoPay: { elisa: true, jana: true, hikari: true },
+      dailyCountLimit: 3,       // payments Claude may send on its own per day; more need approval
+      expiry: 'never',          // one of EXPIRY_MS
+      expiresAt: null,          // ISO time when access ends, or null
       spentThisMonthEUR: 0,
+      sentToday: { date: '', count: 0 },
     },
     drafts: {},
     activity: [],
@@ -78,6 +86,13 @@ export const tx =
       save();
     }
   };
+
+/** True once the pass's expiry time has passed. */
+export const isExpired = (p = state.pass) => !!p.expiresAt && Date.now() >= Date.parse(p.expiresAt);
+
+/** Payments Claude sent on its own today. */
+export const sentTodayCount = (p = state.pass) => (p.sentToday.date === today() ? p.sentToday.count : 0);
+export const today = () => new Date().toISOString().slice(0, 10);
 
 export function addActivity(entry) {
   state.activity.unshift({ id: randomUUID(), ts: new Date().toISOString(), ...entry });

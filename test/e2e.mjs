@@ -119,6 +119,31 @@ await setPass({ permissions: { balances: 'view', rates: 'none' } });
 check('rates None -> quote refused', (await call('get_quote', { amount: 100, fromCurrency: 'EUR', toCurrency: 'JPY' })).isError);
 await setPass({ permissions: { rates: 'view' } });
 
+// --- Finer controls: per-recipient, currencies, daily count, expiry ---
+await setPass({ autoPay: { jana: false } });
+p = await call('prepare_payment', { recipientId: 'jana', amount: 10, currency: 'EUR' });
+check('Jana set to "always ask" -> pass.recipient_ask', p.json.status === 'awaiting_user' && p.json.rule === 'pass.recipient_ask');
+await setPass({ autoPay: { jana: true }, allowedCurrencies: ['EUR'] });
+p = await call('prepare_payment', { recipientId: 'hikari', amount: 1000, currency: 'JPY' });
+check('JPY switched off -> blocked (currency.not_allowed)', p.json.status === 'blocked' && p.json.rule === 'currency.not_allowed');
+await setPass({ allowedCurrencies: ['EUR', 'GBP', 'JPY'] });
+check('consent screen rejects an unknown recipient / currency / count', (await setPass({ autoPay: { bob: true } })).status === 400
+  && (await setPass({ allowedCurrencies: ['USD'] })).status === 400 && (await setPass({ dailyCountLimit: 0 })).status === 400);
+s = await api('/api/state');
+await setPass({ dailyCountLimit: s.pass.sentTodayCount });
+p = await call('prepare_payment', { recipientId: 'elisa', amount: 5, currency: 'EUR' });
+check('daily count reached -> limit.daily_count', p.json.status === 'awaiting_user' && p.json.rule === 'limit.daily_count');
+await setPass({ dailyCountLimit: 50, expiry: '1h' });
+s = await api('/api/state');
+check('expiry 1h -> expiresAt about an hour away', Math.abs(Date.parse(s.pass.expiresAt) - Date.now() - 3600e3) < 60e3 && !s.pass.expired);
+const raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+raw.pass.expiresAt = new Date(Date.now() - 1000).toISOString(); // pretend the hour is over
+fs.writeFileSync(STATE_FILE, JSON.stringify(raw));
+p = await call('prepare_payment', { recipientId: 'elisa', amount: 5, currency: 'EUR' });
+check('expired -> blocked (pass.expired), reads refused', p.json.rule === 'pass.expired' && (await call('get_balances')).isError && (await api('/api/state')).pass.expired);
+await api('/api/restore', 'POST');
+check('renew clears the expiry', (await api('/api/state')).pass.expiresAt === null);
+
 // --- Revoke: the kill switch ---
 await api('/api/revoke', 'POST');
 p = await call('prepare_payment', { recipientId: 'elisa', amount: 10, currency: 'EUR' });

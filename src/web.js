@@ -5,7 +5,7 @@
 import express from 'express';
 import path from 'node:path';
 import { ROOT } from './paths.js';
-import { load, save, state } from './state.js';
+import { isExpired, load, save, sentTodayCount, state } from './state.js';
 import { ibanCountry, maskIban } from './money.js';
 import { ActionError, approveDraft, declineDraft, resetDemo, restoreAccess, revokeAccess, updatePass } from './payments.js';
 import { log } from './log.js';
@@ -19,7 +19,7 @@ function publicState() {
     version: state.version, // the page checks this to spot an outdated server
     balances: state.balances,
     recipients: Object.values(state.recipients).map((r) => ({ ...r, iban: maskIban(r.iban), country: ibanCountry(r.iban) })),
-    pass: state.pass,
+    pass: { ...state.pass, expired: isExpired(), sentTodayCount: sentTodayCount() },
     drafts: Object.values(state.drafts).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     activity: state.activity,
   };

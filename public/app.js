@@ -53,6 +53,8 @@ function renderApprovals(drafts) {
   $('approvals-wrap').innerHTML = pending.length
     ? pending.map((d) => approvalCard(d, !firstRender && !seenApprovals.has(d.id))).join('')
     : `<div class="empty"><span class="icon-btn ok glyph">✓</span>Nothing needs your approval. Payments Claude prepares that break a rule will appear here.</div>`;
+  if (!firstRender) pending.filter((d) => !seenApprovals.has(d.id)).reverse().forEach(notifyApproval);
+  pruneToasts(pending);
   pending.forEach((d) => seenApprovals.add(d.id));
   firstRender = false;
 }
@@ -126,55 +128,70 @@ const TRANSFER_HELP = {
 
 let lastPass = null; // the consent screen opens with the current settings
 
+/** "in 29 days", "in 3 hours", "in 12 min". */
+const timeLeft = (iso) => {
+  const m = Math.max(0, Math.round((Date.parse(iso) - Date.now()) / 60000));
+  if (m >= 2880) return `in ${Math.round(m / 1440)} days`;
+  if (m >= 120) return `in ${Math.round(m / 60)} hours`;
+  return `in ${m} min`;
+};
+
 function renderPass(p, recipients) {
   lastPass = p;
+  lastRecipients = recipients;
   const t = p.permissions.transfers;
-  const setChip = (el, on, onText, offText) => {
-    el.textContent = on ? onText : offText;
-    el.className = 'chip' + (on ? '' : ' off');
-  };
-  setChip($('pass-badge'), !p.revoked, 'Active', 'Revoked');
-  $('conn').textContent = p.revoked ? 'Claude access off' : `Agent Pass · ${LEVELS[t].name}`;
-  $('conn').className = 'pill ' + (p.revoked ? 'off' : 'pill-green');
+  const off = p.revoked || p.expired; // Claude can't see or do anything
+  const offWord = p.revoked ? 'Revoked' : 'Expired';
+  $('pass-badge').textContent = off ? offWord : 'Active';
+  $('pass-badge').className = 'chip' + (off ? ' off' : '');
+  $('conn').textContent = off ? `Claude access ${p.revoked ? 'off' : 'expired'}` : `Agent Pass · ${LEVELS[t].name}`;
+  $('conn').className = 'pill ' + (off ? 'off' : 'pill-green');
+  const expiresLine = p.expiresAt && !p.expired ? ` Access ends ${timeLeft(p.expiresAt)}.` : '';
 
   // Light-blue banner, like "Get ready to spend" on the Wise home screen.
   const banner = $('hero-status');
-  banner.className = 'banner' + (p.revoked ? ' off' : '');
-  banner.innerHTML = p.revoked
+  banner.className = 'banner' + (off ? ' off' : '');
+  banner.innerHTML = off
     ? `<span class="banner-icon"><svg viewBox="0 0 24 24"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></span>
-       <div><h3>Claude's access is revoked</h3><p>Claude can't see your account or move money until you restore it.</p>
-       <div class="btn-row"><button class="btn btn-teal" data-act="restore">Restore access</button></div></div>`
+       <div><h3>Claude's access ${p.revoked ? 'is revoked' : 'has expired'}</h3><p>Claude can't see your account or move money until you ${p.revoked ? 'restore' : 'renew'} it.</p>
+       <div class="btn-row"><button class="btn btn-teal" data-act="restore">${p.revoked ? 'Restore' : 'Renew'} access</button></div></div>`
     : `<span class="banner-icon"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z"/><path d="M18 15l.8 2 2 .8-2 .8L18 21l-.8-2.4-2-.8 2-.8z"/></svg></span>
-       <div><h3>Claude is connected to your Wise account</h3><p>${esc(TRANSFER_HELP[t])}${t === 'act' ? ` Up to ${fmt(p.perPaymentLimitEUR, 'EUR')} per payment.` : ''}</p>
+       <div><h3>Claude is connected to your Wise account</h3><p>${esc(TRANSFER_HELP[t])}${t === 'act' ? ` Up to ${fmt(p.perPaymentLimitEUR, 'EUR')} per payment.` : ''}${expiresLine}</p>
        <div class="btn-row"><button class="btn btn-teal" data-act="consent">Change permissions</button></div></div>`;
-  $('revoke-slot').innerHTML = p.revoked
-    ? `<button class="pill pill-light pill-lg" data-act="restore">Restore access</button>`
+  $('revoke-slot').innerHTML = off
+    ? `<button class="pill pill-light pill-lg" data-act="restore">${p.revoked ? 'Restore' : 'Renew'} access</button>`
     : `<button class="pill pill-light pill-lg" data-act="revoke">Revoke access</button>`;
 
   // Yellow "Agent Pass" account card.
-  const pctCard = Math.min(100, (p.spentThisMonthEUR / p.monthlyLimitEUR) * 100);
+  const pct = Math.min(100, (p.spentThisMonthEUR / p.monthlyLimitEUR) * 100);
   $('pass-card').innerHTML = `
-    <div class="acct-title"><b>${p.revoked ? 'Revoked' : LEVELS[t].name}</b><span class="chev">›</span></div>
-    <div class="acct-sub">${p.revoked ? 'Claude has no access' : 'Transfers level for Claude'}</div>
+    <div class="acct-title"><b>${off ? offWord : LEVELS[t].name}</b><span class="chev">›</span></div>
+    <div class="acct-sub">${off ? 'Claude has no access' : p.expiresAt ? `Ends ${timeLeft(p.expiresAt)}` : 'Transfers level for Claude'}</div>
     <div class="acct-lines">
       <div><span>Per payment</span><b>${fmt(p.perPaymentLimitEUR, 'EUR')}</b></div>
+      <div><span>Today</span><b>${p.sentTodayCount} / ${p.dailyCountLimit} payments</b></div>
       <div><span>This month</span><b>${fmt(p.spentThisMonthEUR, 'EUR')} / ${fmt(p.monthlyLimitEUR, 'EUR')}</b></div>
     </div>
-    <div class="bar"><div style="width:${pctCard}%"></div></div>`;
+    <div class="bar"><div style="width:${pct}%"></div></div>`;
 
-  const level = (v) => `<span class="level ${v === 'none' || p.revoked ? 'off' : ''}">${p.revoked ? 'None' : LEVELS[v].name}</span>`;
-  const pct = Math.min(100, (p.spentThisMonthEUR / p.monthlyLimitEUR) * 100);
+  // "Claude's access" panel
+  const level = (v) => `<span class="level ${v === 'none' || off ? 'off' : ''}">${off ? 'None' : LEVELS[v].name}</span>`;
   const left = Math.max(0, p.monthlyLimitEUR - p.spentThisMonthEUR);
+  const recipientMode = (r) => t !== 'act' ? '' : p.autoPay[r.id] === false
+    ? '<span class="mode ask">Always asks</span>' : '<span class="mode auto">Pays on its own</span>';
   $('pass').innerHTML = `
     <div class="perm-rows">
       <div class="perm-row"><span>Balances</span>${level(p.permissions.balances)}</div>
       <div class="perm-row"><span>Recipients</span>${level(p.permissions.recipients)}</div>
       <div class="perm-row"><span>Exchange rates</span>${level(p.permissions.rates)}</div>
-      <div class="perm-row"><span>Transfers<small>${esc(p.revoked ? "Claude can't see or do anything." : TRANSFER_HELP[t])}</small></span>${level(t)}</div>
+      <div class="perm-row"><span>Transfers<small>${esc(off ? "Claude can't see or do anything." : TRANSFER_HELP[t])}</small></span>${level(t)}</div>
+      <div class="perm-row"><span>Access lasts</span><span class="level ${p.expired ? 'off' : ''}">${p.expired ? 'Expired' : p.expiresAt ? 'Ends ' + timeLeft(p.expiresAt) : 'Until revoked'}</span></div>
     </div>
     <div class="limits">
       <div class="limit"><small>Per payment</small><b>${fmt(p.perPaymentLimitEUR, 'EUR')}</b></div>
       <div class="limit"><small>Per month</small><b>${fmt(p.monthlyLimitEUR, 'EUR')}</b></div>
+      <div class="limit"><small>Per day</small><b>${p.dailyCountLimit} payment${p.dailyCountLimit === 1 ? '' : 's'}</b></div>
+      <div class="limit"><small>Sent today</small><b>${p.sentTodayCount}</b></div>
     </div>
     <div class="spend">
       <div class="bar-label"><span>${fmt(p.spentThisMonthEUR, 'EUR')} sent this month</span><span>${fmt(left, 'EUR')} left</span></div>
@@ -184,14 +201,13 @@ function renderPass(p, recipients) {
     ${recipients.map((r) => `
       <div class="tx">
         ${avatar(r.name, r.country)}
-        <div class="meta"><b>${esc(r.name)}</b><small>${r.note ? esc(r.note) + ' · ' : ''}${esc(r.currency)} · ${esc(r.iban)}</small></div>
+        <div class="meta"><div class="head"><b>${esc(r.name)}</b>${recipientMode(r)}</div><small>${r.note ? esc(r.note) + ' · ' : ''}${esc(r.currency)} · ${esc(r.iban)}</small></div>
       </div>`).join('')}
     <div class="group-title">Allowed currencies</div>
-    <div class="chips">${p.allowedCurrencies.map((c) => `<span class="chip-outline selected">${esc(c)}</span>`).join('')}</div>
-    ${p.revoked ? `<div class="revoked-banner">Claude's access is revoked. It can't see your account or move money.</div>` : ''}
+    <div class="chips">${p.allowedCurrencies.length ? p.allowedCurrencies.map((c) => `<span class="chip-outline">${esc(c)}</span>`).join('') : '<span class="hint">None</span>'}</div>
     <div class="pass-actions">
-      ${p.revoked
-        ? `<button class="btn btn-primary" data-act="restore">Restore access</button>`
+      ${off
+        ? `<button class="btn btn-primary" data-act="restore">${p.revoked ? 'Restore' : 'Renew'} access</button>`
         : `<button class="btn btn-secondary" data-act="consent">Change permissions</button>
            <button class="btn btn-danger" data-act="revoke">Revoke access</button>`}
     </div>`;
@@ -205,39 +221,132 @@ const consent = $('consent');
 const form = $('consent-form');
 const PERM_OPTIONS = { balances: ['none', 'view'], recipients: ['none', 'view'], rates: ['none', 'view'], transfers: ['none', 'view', 'draft', 'act'] };
 const NEW_LEVELS = new Set(['draft', 'act']); // the levels this project adds to Wise's None / View
+const EXPIRY = { '1h': '1 hour', '1d': '1 day', '30d': '30 days', never: 'Until revoked' };
+const ALL_CURRENCIES = ['EUR', 'GBP', 'JPY'];
+let lastRecipients = [];
+
+// One-tap starting points. Each sets the whole form; the user can still adjust anything.
+const PRESETS = {
+  look: { permissions: { balances: 'view', recipients: 'view', rates: 'view', transfers: 'view' }, expiry: '1d' },
+  draft: { permissions: { balances: 'view', recipients: 'view', rates: 'view', transfers: 'draft' }, expiry: '30d', perPaymentLimitEUR: 200, monthlyLimitEUR: 500 },
+  bills: {
+    permissions: { balances: 'view', recipients: 'view', rates: 'view', transfers: 'act' }, expiry: '30d',
+    perPaymentLimitEUR: 200, monthlyLimitEUR: 500, dailyCountLimit: 3, allowedCurrencies: ['EUR'],
+    autoPay: { elisa: true, jana: false, hikari: false },
+  },
+};
+
+const radios = (name, options, current, label = (v) => LEVELS[v].name) => options.map((v) => `
+  <label><input type="radio" name="${name}" value="${v}" ${current === v ? 'checked' : ''} />
+    <span>${label(v)}${NEW_LEVELS.has(v) ? '<em class="new">NEW</em>' : ''}</span></label>`).join('');
+
+/** Fill the form from a pass-like object (the current pass, or a preset merged over it). */
+function fillConsent(p) {
+  for (const [perm, options] of Object.entries(PERM_OPTIONS)) {
+    form.querySelector(`[data-perm="${perm}"]`).innerHTML = radios(perm, options, p.permissions[perm]);
+  }
+  form.querySelector('[data-perm="expiry"]').innerHTML = radios('expiry', Object.keys(EXPIRY), p.expiry, (v) => EXPIRY[v]);
+  form.perPaymentLimitEUR.value = p.perPaymentLimitEUR;
+  form.monthlyLimitEUR.value = p.monthlyLimitEUR;
+  form.dailyCountLimit.value = p.dailyCountLimit;
+  $('consent-currencies').innerHTML = ALL_CURRENCIES.map((c) => `
+    <label class="toggle-chip"><input type="checkbox" name="currency" value="${c}" ${p.allowedCurrencies.includes(c) ? 'checked' : ''} />
+      <span>${currencyFlag(c, 20, 'ccy-dot')}${c}</span></label>`).join('');
+  $('consent-recipients').innerHTML = lastRecipients.map((r) => `
+    <label class="switch-row">${avatar(r.name, r.country)}
+      <span class="switch-text"><b>${esc(r.name)}</b><small data-auto-label="${esc(r.id)}"></small></span>
+      <input type="checkbox" class="switch" name="autopay" value="${esc(r.id)}" ${p.autoPay[r.id] !== false ? 'checked' : ''} /></label>`).join('');
+}
 
 function openConsent() {
   if (!lastPass) return;
-  for (const [perm, options] of Object.entries(PERM_OPTIONS)) {
-    form.querySelector(`[data-perm="${perm}"]`).innerHTML = options.map((v) => `
-      <label><input type="radio" name="${perm}" value="${v}" ${lastPass.permissions[perm] === v ? 'checked' : ''} />
-        <span>${LEVELS[v].name}${NEW_LEVELS.has(v) ? '<em class="new">NEW</em>' : ''}</span></label>`).join('');
-  }
-  form.perPaymentLimitEUR.value = lastPass.perPaymentLimitEUR;
-  form.monthlyLimitEUR.value = lastPass.monthlyLimitEUR;
+  fillConsent(lastPass);
   $('consent-error').textContent = '';
   syncConsent();
   consent.showModal();
 }
 
-/** Show the help text for the chosen transfer level, and the limits for Draft and Act. */
-function syncConsent() {
-  const t = form.transfers.value;
-  $('transfers-help').textContent = TRANSFER_HELP[t];
-  $('perm-limits').hidden = !NEW_LEVELS.has(t);
+/** Read the form into the body that POST /api/pass expects. */
+function readConsent() {
+  const checked = (name) => [...form.querySelectorAll(`input[name="${name}"]`)];
+  return {
+    permissions: { balances: form.balances.value, recipients: form.recipients.value, rates: form.rates.value, transfers: form.transfers.value },
+    perPaymentLimitEUR: Number(form.perPaymentLimitEUR.value),
+    monthlyLimitEUR: Number(form.monthlyLimitEUR.value),
+    dailyCountLimit: Number(form.dailyCountLimit.value),
+    allowedCurrencies: checked('currency').filter((i) => i.checked).map((i) => i.value),
+    autoPay: Object.fromEntries(checked('autopay').map((i) => [i.value, i.checked])),
+    expiry: form.expiry.value,
+  };
 }
 
+/** Which preset (if any) the form matches right now. */
+function matchingPreset(body) {
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  for (const [name, pr] of Object.entries(PRESETS)) {
+    if (Object.entries(pr).every(([k, v]) => (k === 'permissions' || k === 'autoPay' ? Object.entries(v).every(([kk, vv]) => body[k][kk] === vv) : same(body[k], v)))) return name;
+  }
+  return 'custom';
+}
+
+/** Show/hide parts for the chosen level, and rewrite the plain-English summary. */
+function syncConsent() {
+  const b = readConsent();
+  const t = b.permissions.transfers;
+  $('transfers-help').textContent = TRANSFER_HELP[t];
+  $('perm-limits').hidden = !NEW_LEVELS.has(t);
+  form.querySelectorAll('.act-only').forEach((el) => (el.hidden = t !== 'act'));
+  for (const [id, on] of Object.entries(b.autoPay)) {
+    const el = form.querySelector(`[data-auto-label="${id}"]`);
+    if (el) el.textContent = on ? 'Pays on its own, within your limits' : 'Always asks you first';
+  }
+  const preset = matchingPreset(b);
+  document.querySelectorAll('.preset').forEach((el) => el.classList.toggle('on', el.dataset.preset === preset));
+
+  // Plain-English summary
+  const sees = ['balances', 'recipients', 'rates'].filter((k) => b.permissions[k] === 'view')
+    .map((k) => ({ balances: 'balances', recipients: 'recipients', rates: 'exchange rates' }[k]));
+  const names = Object.fromEntries(lastRecipients.map((r) => [r.id, r.name]));
+  const auto = Object.entries(b.autoPay).filter(([, on]) => on).map(([id]) => names[id]);
+  const ask = Object.entries(b.autoPay).filter(([, on]) => !on).map(([id]) => names[id]);
+  const ccy = b.allowedCurrencies.length ? b.allowedCurrencies.join(', ') : 'no currencies';
+  const can = [], asks = [], cannot = [];
+  if (sees.length) can.push(`See your ${list(sees)}`);
+  if (t === 'view' || t === 'none') cannot.push('Prepare or send any money');
+  if (t === 'draft') { can.push(`Prepare payments in ${ccy}`); asks.push('Every payment: you send it with one tap'); }
+  if (t === 'act') {
+    if (auto.length) can.push(`Pay ${list(auto)} up to ${fmt(b.perPaymentLimitEUR, 'EUR')} each, in ${ccy}`);
+    if (ask.length) asks.push(`Any payment to ${list(ask)}`);
+    asks.push(`Over ${fmt(b.perPaymentLimitEUR, 'EUR')}, over ${fmt(b.monthlyLimitEUR, 'EUR')} a month, or more than ${b.dailyCountLimit} a day`);
+  }
+  if (t === 'draft' || t === 'act') asks.push('New recipients or changed bank details');
+  cannot.push('Add recipients or change these settings');
+  const line = (cls, title, items) => items.length ? `<div class="sum ${cls}"><b>${title}</b><ul>${items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul></div>` : '';
+  $('consent-summary').innerHTML =
+    line('can', 'Claude can', can) + line('ask', 'Claude asks you first', asks) + line('cannot', 'Claude can never', cannot) +
+    `<div class="sum-foot">Access ${b.expiry === 'never' ? 'lasts until you revoke it' : `ends in ${EXPIRY[b.expiry]}`}.</div>`;
+}
+const list = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+
 form.addEventListener('change', syncConsent);
+form.addEventListener('input', syncConsent);
+$('presets').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-preset]');
+  if (!b || !PRESETS[b.dataset.preset]) return;
+  const pr = PRESETS[b.dataset.preset];
+  fillConsent({ ...lastPass, ...pr, permissions: { ...lastPass.permissions, ...pr.permissions }, autoPay: { ...lastPass.autoPay, ...(pr.autoPay || {}) } });
+  syncConsent();
+});
 consent.addEventListener('click', (e) => {
   if (e.target.closest('[data-close]') || e.target === consent) consent.close(); // ✕, Cancel, or the backdrop
 });
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const body = {
-    permissions: { balances: form.balances.value, recipients: form.recipients.value, rates: form.rates.value, transfers: form.transfers.value },
-    perPaymentLimitEUR: Number(form.perPaymentLimitEUR.value),
-    monthlyLimitEUR: Number(form.monthlyLimitEUR.value),
-  };
+  const body = readConsent();
+  if (NEW_LEVELS.has(body.permissions.transfers) && !body.allowedCurrencies.length) {
+    $('consent-error').textContent = 'Pick at least one currency, or set Transfers to View.';
+    return;
+  }
   const res = await fetch('/api/pass', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   if (!res.ok) {
     $('consent-error').textContent = (await res.json().catch(() => ({}))).error || 'Something went wrong.';
@@ -247,6 +356,61 @@ form.addEventListener('submit', async (e) => {
   lastKey = '';
   poll();
 });
+
+// ---------------------------------------------------------------------------
+// Pop-up notifications for new approvals
+// ---------------------------------------------------------------------------
+
+const toasts = $('toasts');
+const notifyOk = () => 'Notification' in window && Notification.permission === 'granted';
+
+function syncBell() {
+  const btn = $('notify-btn');
+  if (!('Notification' in window)) { btn.hidden = true; return; }
+  btn.classList.toggle('on', notifyOk());
+  btn.title = notifyOk() ? 'Notifications are on' : 'Turn on notifications';
+}
+$('notify-btn').addEventListener('click', async () => {
+  if ('Notification' in window && Notification.permission === 'default') await Notification.requestPermission();
+  syncBell();
+});
+syncBell();
+
+/** A new payment is waiting: pop up in the page, and as a system notification if allowed. */
+function notifyApproval(d) {
+  const draftOnly = d.rule === 'pass.draft';
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.dataset.id = d.id;
+  el.innerHTML = `
+    <div class="toast-top"><span>${draftOnly ? 'Ready for you to send' : 'Claude is asking'}</span><button class="toast-x" aria-label="Dismiss">✕</button></div>
+    <div class="toast-body">
+      ${avatar(d.recipientName, d.iban ? d.iban.slice(0, 2) : '')}
+      <div class="meta"><b>${esc(d.recipientName)} · ${fmt(d.amount, d.currency)}</b><small>${esc(d.reason)}</small></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" data-act="decline" data-id="${esc(d.id)}">Decline</button>
+      <button class="btn btn-primary" data-act="approve" data-id="${esc(d.id)}">${draftOnly ? 'Send' : 'Approve'}</button>
+    </div>`;
+  el.querySelector('.toast-x').addEventListener('click', () => el.remove());
+  toasts.prepend(el);
+  document.title = `(${$('nav-count').textContent || 1}) Wise · Agent Pass`;
+
+  if (notifyOk() && document.hidden) {
+    const n = new Notification(draftOnly ? 'Ready for you to send' : 'Claude is asking to pay', {
+      body: `${d.recipientName} · ${fmt(d.amount, d.currency)}\n${d.reason}`,
+      tag: d.id,
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+  }
+}
+
+/** Remove pop-ups for drafts that are no longer waiting (approved, declined, or reset). */
+function pruneToasts(pending) {
+  const ids = new Set(pending.map((d) => d.id));
+  toasts.querySelectorAll('.toast').forEach((el) => { if (!ids.has(el.dataset.id)) el.remove(); });
+  if (!pending.length) document.title = 'Wise · Agent Pass';
+}
 
 // Icon and label for each kind of activity entry.
 const ICON_IMG = {
@@ -306,7 +470,7 @@ function render(s) {
 
 let lastKey = '';
 
-const API_VERSION = 3; // must match STATE_VERSION in src/state.js
+const API_VERSION = 4; // must match STATE_VERSION in src/state.js
 
 async function poll() {
   let s;

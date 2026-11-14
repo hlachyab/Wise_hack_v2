@@ -306,3 +306,81 @@ footer button { background: none; border: 0; color: var(--forest); font: inherit
   .prompt { min-height: 0; }
 }
 .approval .btn { white-space: nowrap; }
+
+/* ---------------------------------------------------------------------------
+   Agent Pass controls: presets, toggles, summary
+   --------------------------------------------------------------------------- */
+.consent { overflow-y: auto; }
+.presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 20px 0 8px; }
+.preset { text-align: left; border: 0; border-radius: 20px; padding: 14px 16px; background: var(--surface); font: inherit; color: var(--content-primary); cursor: pointer; display: flex; flex-direction: column; gap: 2px; box-shadow: inset 0 0 0 2px transparent; transition: box-shadow .15s, background .15s; }
+.preset:hover:not(:disabled) { background: var(--nav-active); }
+.preset b { font-size: 15px; line-height: 22px; }
+.preset small { color: var(--content-secondary); font-size: 13px; line-height: 18px; }
+.preset.on { background: var(--light-green); box-shadow: inset 0 0 0 2px var(--forest); }
+.preset:disabled { cursor: default; opacity: .55; }
+.preset.on:disabled { opacity: 1; }
+
+.field { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; }
+.field[hidden], .perm-limits label[hidden] { display: none; }
+.field-label { color: var(--content-secondary); }
+.toggle-chip { position: relative; }
+.toggle-chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.toggle-chip span { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px 0 10px; border-radius: 100px; background: var(--nav-active); font-weight: 600; color: var(--content-secondary); cursor: pointer; transition: background .15s; }
+.toggle-chip input:checked + span { background: var(--bright-green); color: var(--forest); }
+.toggle-chip input:focus-visible + span { outline: 2px solid var(--forest); outline-offset: 2px; }
+.toggle-chip .flag-img { width: 20px; height: 20px; }
+
+.switch-row { display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 8px; border-radius: 20px; background: var(--surface); cursor: pointer; }
+.switch-row + .switch-row { margin-top: 6px; }
+.switch-row .icon-btn { width: 40px; height: 40px; background: var(--screen); }
+.switch-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.switch-text b { font-size: 15px; line-height: 22px; }
+.switch-text small { color: var(--content-secondary); font-size: 13px; line-height: 18px; }
+.switch { appearance: none; -webkit-appearance: none; width: 48px; height: 28px; border-radius: 100px; background: var(--neutral-strong); position: relative; cursor: pointer; flex-shrink: 0; margin: 0; transition: background .15s; }
+.switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--screen); box-shadow: 0 1px 3px rgba(14, 15, 12, 0.25); transition: transform .15s; }
+.switch:checked { background: var(--forest); }
+.switch:checked::after { transform: translateX(20px); }
+.switch:focus-visible { outline: 2px solid var(--forest); outline-offset: 2px; }
+
+.summary { margin-top: 16px; border-radius: 24px; background: var(--banner); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.sum b { font-size: 14px; }
+.sum ul { margin: 4px 0 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.sum li { position: relative; padding-left: 22px; color: var(--content-secondary); }
+.sum li::before { position: absolute; left: 0; font-weight: 800; }
+.sum.can li::before { content: '✓'; color: var(--positive); }
+.sum.ask li::before { content: '!'; color: var(--warning-ink); left: 4px; }
+.sum.cannot li::before { content: '✕'; color: var(--negative); }
+.sum-foot { font-size: 13px; color: var(--content-secondary); border-top: 1px solid rgba(32, 76, 76, 0.15); padding-top: 10px; }
+
+.mode { font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 100px; white-space: nowrap; }
+.mode.auto { background: var(--light-green); color: var(--forest); }
+.mode.ask { background: var(--warning-soft); color: var(--warning-ink); }
+.limits { grid-template-columns: 1fr 1fr; }
+
+/* Bell (turns on browser notifications) */
+.bell { position: relative; border: 0; cursor: pointer; width: 48px; height: 48px; }
+.bell svg { width: 22px; height: 22px; }
+.bell i { display: none; }
+.bell.on { background: var(--light-green); }
+.bell.on i { display: block; position: absolute; top: 10px; right: 11px; width: 8px; height: 8px; border-radius: 50%; background: var(--positive); }
+
+/* ---------------------------------------------------------------------------
+   Pop-up notifications
+   --------------------------------------------------------------------------- */
+.toasts { position: fixed; right: 24px; bottom: 24px; z-index: 50; display: flex; flex-direction: column; gap: 12px; width: min(400px, calc(100vw - 32px)); pointer-events: none; }
+.toast { pointer-events: auto; background: var(--surface); border-radius: 28px; padding: 8px; box-shadow: 0 16px 48px rgba(14, 15, 12, 0.22), 0 0 0 1px var(--border-soft); animation: toast-in .35s cubic-bezier(.2, .9, .3, 1.2); }
+@keyframes toast-in { from { transform: translateY(24px) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+.toast-top { background: var(--card-yellow); border-radius: 20px 20px 0 0; padding: 10px 10px 10px 16px; display: flex; justify-content: space-between; align-items: center; font-weight: 700; color: var(--forest); }
+.toast-x { width: 28px; height: 28px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.6); cursor: pointer; font-size: 12px; color: var(--forest); }
+.toast-body { display: flex; gap: 12px; align-items: flex-start; padding: 14px 8px 0; }
+.toast-body .icon-btn { background: var(--screen); }
+.toast-body .meta { min-width: 0; display: flex; flex-direction: column; }
+.toast-body b { font-size: 16px; line-height: 24px; }
+.toast-body small { color: var(--content-secondary); font-size: 13px; line-height: 19px; }
+.toast .btn-row { padding: 0 8px 8px; margin-top: 14px; }
+.toast .btn { height: 44px; }
+@media (max-width: 720px) {
+  .toasts { right: 16px; bottom: 16px; }
+  .presets { grid-template-columns: 1fr 1fr; }
+  .topbar .bell { width: 44px; height: 44px; }
+}

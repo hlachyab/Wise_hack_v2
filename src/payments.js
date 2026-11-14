@@ -10,9 +10,9 @@
 //   awaiting_user or blocked if the user changed their pass in the meantime.
 
 import { randomUUID } from 'node:crypto';
-import { state, addActivity, resetState, READ_LEVELS, TRANSFER_LEVELS } from './state.js';
+import { state, addActivity, resetState, sentTodayCount, today, EXPIRY_MS, READ_LEVELS, TRANSFER_LEVELS } from './state.js';
 import { decide, injectionWarnings, STATUS_FOR } from './rules.js';
-import { FEE_FIXED_EUR, FEE_PERCENT, RATES_PER_EUR, fmt, maskIban, normIban, round2, toEUR } from './money.js';
+import { CURRENCIES, FEE_FIXED_EUR, FEE_PERCENT, RATES_PER_EUR, fmt, maskIban, normIban, round2, toEUR } from './money.js';
 import { log } from './log.js';
 
 /** Error with an HTTP status. The user actions throw it and web.js turns it into a response. */
@@ -93,6 +93,7 @@ function send(d, byUser) {
   d.status = 'paid';
   d.paidAt = new Date().toISOString();
   d.sentByUser = byUser;
+  if (!byUser) state.pass.sentToday = { date: today(), count: sentTodayCount() + 1 };
   addActivity({
     kind: 'paid',
     draftId: d.id,
@@ -165,35 +166,81 @@ export function declineDraft(id) {
 
 const LEVEL_NAMES = { none: 'None', view: 'View', draft: 'Draft', act: 'Act' };
 
-/** Save the consent screen: permission levels and limits. */
-export function updatePass({ permissions = {}, perPaymentLimitEUR, monthlyLimitEUR }) {
+const EXPIRY_NAMES = { '1h': 'for 1 hour', '1d': 'for 1 day', '30d': 'for 30 days', never: 'until you revoke it' };
+
+/**
+ * Save the consent screen. Every field is optional; missing ones keep their current value.
+ * { permissions, perPaymentLimitEUR, monthlyLimitEUR, dailyCountLimit, allowedCurrencies, autoPay, expiry }
+ */
+export function updatePass(body) {
+  const { permissions = {}, perPaymentLimitEUR, monthlyLimitEUR, dailyCountLimit, allowedCurrencies, autoPay, expiry } = body;
   const p = state.pass;
+  const bad = (msg) => { throw new ActionError(400, msg); };
+
   const next = { ...p.permissions };
   for (const key of ['balances', 'recipients', 'rates']) {
     if (permissions[key] === undefined) continue;
-    if (!READ_LEVELS.includes(permissions[key])) throw new ActionError(400, `${key} must be one of ${READ_LEVELS.join(', ')}`);
+    if (!READ_LEVELS.includes(permissions[key])) bad(`${key} must be one of ${READ_LEVELS.join(', ')}`);
     next[key] = permissions[key];
   }
   if (permissions.transfers !== undefined) {
-    if (!TRANSFER_LEVELS.includes(permissions.transfers)) throw new ActionError(400, `transfers must be one of ${TRANSFER_LEVELS.join(', ')}`);
+    if (!TRANSFER_LEVELS.includes(permissions.transfers)) bad(`transfers must be one of ${TRANSFER_LEVELS.join(', ')}`);
     next.transfers = permissions.transfers;
   }
+
   const limit = (v, name) => {
     if (v === undefined) return undefined;
     const n = Number(v);
-    if (!Number.isFinite(n) || n <= 0 || n > 100000) throw new ActionError(400, `${name} must be a positive amount`);
+    if (!Number.isFinite(n) || n <= 0 || n > 100000) bad(`${name} must be a positive amount`);
     return round2(n);
   };
   const per = limit(perPaymentLimitEUR, 'perPaymentLimitEUR') ?? p.perPaymentLimitEUR;
   const month = limit(monthlyLimitEUR, 'monthlyLimitEUR') ?? p.monthlyLimitEUR;
 
-  Object.assign(p, { permissions: next, perPaymentLimitEUR: per, monthlyLimitEUR: month });
-  const limits = next.transfers === 'act' ? `, up to ${fmt(per, 'EUR')} per payment and ${fmt(month, 'EUR')} per month` : '';
+  let count = p.dailyCountLimit;
+  if (dailyCountLimit !== undefined) {
+    count = Number(dailyCountLimit);
+    if (!Number.isInteger(count) || count < 1 || count > 50) bad('dailyCountLimit must be a whole number from 1 to 50');
+  }
+
+  let currencies = p.allowedCurrencies;
+  if (allowedCurrencies !== undefined) {
+    if (!Array.isArray(allowedCurrencies) || !allowedCurrencies.every((c) => CURRENCIES.includes(c))) bad(`allowedCurrencies must be from ${CURRENCIES.join(', ')}`);
+    currencies = CURRENCIES.filter((c) => allowedCurrencies.includes(c)); // dedupe, keep order
+  }
+
+  const auto = { ...p.autoPay };
+  if (autoPay !== undefined) {
+    if (typeof autoPay !== 'object' || autoPay === null) bad('autoPay must be an object');
+    for (const [id, on] of Object.entries(autoPay)) {
+      if (!state.recipients[id]) bad(`Unknown recipient ${id}`);
+      auto[id] = !!on;
+    }
+  }
+
+  let { expiry: exp, expiresAt } = p;
+  if (expiry !== undefined) {
+    if (!(expiry in EXPIRY_MS)) bad(`expiry must be one of ${Object.keys(EXPIRY_MS).join(', ')}`);
+    exp = expiry;
+    expiresAt = EXPIRY_MS[expiry] ? new Date(Date.now() + EXPIRY_MS[expiry]).toISOString() : null;
+  }
+
+  Object.assign(p, {
+    permissions: next, perPaymentLimitEUR: per, monthlyLimitEUR: month, dailyCountLimit: count,
+    allowedCurrencies: currencies, autoPay: auto, expiry: exp, expiresAt,
+  });
+
+  const t = next.transfers;
+  const asks = Object.values(state.recipients).filter((r) => !auto[r.id]).map((r) => r.name);
+  const details = t === 'act'
+    ? `, up to ${fmt(per, 'EUR')} per payment, ${fmt(month, 'EUR')} per month and ${count} payment${count === 1 ? '' : 's'} a day` +
+      (asks.length ? `; always ask for ${asks.join(', ')}` : '')
+    : '';
   addActivity({
     kind: 'pass',
     decision: 'pass',
-    rule: `pass.${next.transfers}`,
-    text: `You updated Claude's Agent Pass. Transfers: ${LEVEL_NAMES[next.transfers]}${limits}.`,
+    rule: `pass.${t}`,
+    text: `You updated Claude's Agent Pass ${EXPIRY_NAMES[exp]}. Transfers: ${LEVEL_NAMES[t]}${details}.`,
   });
 }
 
@@ -203,7 +250,7 @@ export function revokeAccess() {
 }
 
 export function restoreAccess() {
-  state.pass.revoked = false;
+  Object.assign(state.pass, { revoked: false, expiry: 'never', expiresAt: null }); // also renews an expired pass
   addActivity({ kind: 'restored', decision: 'allow', rule: 'pass.restored', text: "You restored Claude's access under your Agent Pass." });
 }
 

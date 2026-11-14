@@ -4,7 +4,7 @@
 // The idea: within the user's limits Claude can act on its own; anything outside them asks the
 // user; only a few hard settings (revoked, read-only, currency) block outright.
 
-import { state } from './state.js';
+import { isExpired, sentTodayCount, state } from './state.js';
 import { fmt, maskIban, normIban, toEUR } from './money.js';
 
 /** Draft status for each decision. */
@@ -14,6 +14,12 @@ export const REVOKED = {
   decision: 'block',
   rule: 'pass.revoked',
   reason: "You revoked Claude's access to your Wise account.",
+};
+
+export const EXPIRED = {
+  decision: 'block',
+  rule: 'pass.expired',
+  reason: "Claude's access to your Wise account has expired. You can renew it in the Wise app.",
 };
 
 const READ_ONLY = {
@@ -28,6 +34,9 @@ export function decide({ recipientId, amount, currency, iban }) {
 
   // 1. Access revoked
   if (p.revoked) return REVOKED;
+
+  // 1b. Access expired
+  if (isExpired(p)) return EXPIRED;
 
   // 2. Transfers are None or View (read-only)
   const level = p.permissions.transfers;
@@ -79,6 +88,24 @@ export function decide({ recipientId, amount, currency, iban }) {
       decision: 'needs_approval',
       rule: 'limit.monthly',
       reason: `This would go over your ${fmt(p.monthlyLimitEUR, 'EUR')} monthly limit (${fmt(left, 'EUR')} left this month), so you need to approve it.`,
+    };
+  }
+
+  // 7b. Daily payment count (only Claude's own sends count)
+  if (level === 'act' && sentTodayCount(p) >= p.dailyCountLimit) {
+    return {
+      decision: 'needs_approval',
+      rule: 'limit.daily_count',
+      reason: `Claude already sent ${p.dailyCountLimit} payment${p.dailyCountLimit === 1 ? '' : 's'} today, your daily maximum, so you need to approve this one.`,
+    };
+  }
+
+  // 7c. The user asked to approve every payment to this recipient
+  if (level === 'act' && p.autoPay[recipientId] === false) {
+    return {
+      decision: 'needs_approval',
+      rule: 'pass.recipient_ask',
+      reason: `You asked Claude to always check with you before paying ${r.name}.`,
     };
   }
 

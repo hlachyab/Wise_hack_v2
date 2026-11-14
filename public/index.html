@@ -36,6 +36,7 @@
     <header class="topbar">
       <span id="conn" class="pill pill-green">Agent Pass</span>
       <button class="pill pill-light" data-act="consent">Permissions <b>＋</b></button>
+      <button class="round-btn bell" id="notify-btn" title="Turn on notifications" aria-label="Turn on notifications"><svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 21h4"/></svg><i id="bell-dot"></i></button>
       <div class="me"><span class="me-avatar">AK<i></i></span><span class="me-name">Alex Kask</span><span class="chev">›</span></div>
     </header>
 
@@ -114,7 +115,8 @@
   </div>
 </div>
 
-<!-- The consent screen: Wise's permission levels, extended with Draft and Act for transfers. -->
+<!-- The consent screen: Wise's permission levels, extended with Draft and Act for transfers,
+     plus per-recipient, currency, daily-count and expiry controls. -->
 <dialog id="consent" class="consent" aria-labelledby="consent-title">
   <form method="dialog" id="consent-form">
     <div class="consent-top">
@@ -122,8 +124,14 @@
       <button type="button" class="close" data-close aria-label="Close">✕</button>
     </div>
     <h2 id="consent-title" class="title-sub" tabindex="-1" autofocus>Claude wants to access your Wise account</h2>
-    <p class="subtitle">Choose what Claude can see and do. You can change this or revoke access at any time.</p>
-    <div class="profile-row"><span class="me-avatar sm">AK</span><div><b>Personal account</b><small>The only profile Claude can use</small></div><span class="chip">Selected</span></div>
+    <p class="subtitle">Pick a starting point, then adjust anything. You can change this or revoke access at any time.</p>
+
+    <div class="presets" id="presets">
+      <button type="button" class="preset" data-preset="look"><b>Just looking</b><small>Claude can see, not pay</small></button>
+      <button type="button" class="preset" data-preset="draft"><b>Drafts for me</b><small>Claude prepares, you send</small></button>
+      <button type="button" class="preset" data-preset="bills"><b>Pay my bills</b><small>Small payments to Elisa, 30 days</small></button>
+      <button type="button" class="preset" data-preset="custom" disabled><b>Custom</b><small>Your own settings</small></button>
+    </div>
 
     <div class="perm"><div class="perm-head"><b>Balances</b><span class="seg" data-perm="balances"></span></div></div>
     <div class="perm"><div class="perm-head"><b>Recipients</b><span class="seg" data-perm="recipients"></span></div></div>
@@ -134,9 +142,15 @@
       <div class="perm-limits" id="perm-limits">
         <label>Per payment, up to<span class="money-in"><span>€</span><input name="perPaymentLimitEUR" type="number" min="1" step="1" inputmode="numeric" /></span></label>
         <label>Per month, up to<span class="money-in"><span>€</span><input name="monthlyLimitEUR" type="number" min="1" step="1" inputmode="numeric" /></span></label>
-        <p class="perm-note">Saved recipients only. New recipients and changed bank details always need your approval.</p>
+        <label class="act-only">Payments a day, up to<span class="money-in"><span>#</span><input name="dailyCountLimit" type="number" min="1" max="50" step="1" inputmode="numeric" /></span></label>
+        <div class="field"><span class="field-label">Currencies</span><div class="chips" id="consent-currencies"></div></div>
+        <div class="field act-only"><span class="field-label">Who Claude can pay on its own</span><div id="consent-recipients"></div></div>
+        <p class="perm-note">New recipients and changed bank details always need your approval.</p>
       </div>
     </div>
+    <div class="perm"><div class="perm-head"><b>Access lasts</b><span class="seg" data-perm="expiry"></span></div></div>
+
+    <div class="summary" id="consent-summary"></div>
 
     <p class="consent-error" id="consent-error"></p>
     <div class="btn-row">
@@ -145,6 +159,9 @@
     </div>
   </form>
 </dialog>
+
+<!-- Pop-up notifications for new approvals (bottom right). -->
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script src="/app.js"></script>
 </body>
