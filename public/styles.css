@@ -650,3 +650,6 @@ a.btn { text-decoration: none; }
   .acct-row { grid-template-columns: minmax(0, 1fr); }
   .acct-row > .acct:first-child { min-height: 0; }
 }
+/* Round buttons and badges never get squeezed into ovals by a narrow flex row. */
+.bell, .round-btn, .me-avatar, .nav-count, .pass-status i, .bell i, .me-avatar i { flex-shrink: 0; aspect-ratio: 1; }
+.nav-count { aspect-ratio: auto; }
