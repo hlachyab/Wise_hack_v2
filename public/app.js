@@ -237,6 +237,93 @@ const TRANSFER_HELP = {
 
 let lastPass = null; // the consent screen opens with the current settings
 
+// What each Transfers level means in a few words, for the home card.
+const LEVEL_SHORT = {
+  none: "Can't see transfers",
+  view: 'Can look, not pay',
+  draft: 'Prepares, you send',
+  act: 'Pays within your limits',
+};
+
+/**
+ * Home "Claude · Agent Pass" card: status and time left, what waits for you, how much of the
+ * limits is used, what Claude may do, and Claude's last action.
+ */
+function renderPassCard(p, drafts, batches, activity, off, offWord) {
+  const t = p.permissions.transfers;
+  const status = !p.connected ? ['idle', 'Not connected'] : off ? ['off', offWord] : ['on', 'Active'];
+  $('pass-status').className = `pass-status ${status[0]}`;
+  $('pass-status').innerHTML = `<i></i>${status[1]}`;
+
+  if (!p.connected || off) {
+    $('pass-card').innerHTML = `
+      <div class="pc-off">
+        <b>${!p.connected ? 'Claude is not connected' : p.revoked ? 'Access revoked' : 'Access expired'}</b>
+        <p>Claude can't see your account or move money.</p>
+        ${p.connected ? `<button class="btn btn-primary pc-btn" data-act="restore">${p.revoked ? 'Restore' : 'Renew'} access</button>` : ''}
+      </div>`;
+    return;
+  }
+
+  const singles = drafts.filter((d) => d.status === 'awaiting_user' && !d.batchId);
+  const openBatches = batches.filter((b) => b.status === 'awaiting_user');
+  const waitCount = singles.length + openBatches.length;
+  const waitLine = [...openBatches.map((b) => esc(b.title)), ...singles.map((d) => `${esc(d.recipientName)} ${fmt(d.amount, d.currency)}`)].slice(0, 2).join(' · ');
+
+  const monthPct = Math.min(100, (p.spentThisMonthEUR / p.monthlyLimitEUR) * 100);
+  const dots = Array.from({ length: Math.min(p.dailyCountLimit, 10) }, (_, i) => `<span class="${i < p.sentTodayCount ? 'on' : ''}"></span>`).join('');
+  const canPay = t === 'act' || t === 'draft';
+
+  // What Claude may do, as chips; switched-off ones are shown struck through.
+  const caps = [
+    ['Balances', p.permissions.balances !== 'none'],
+    [p.permissions.recipients === 'add' ? 'Recipients + add' : 'Recipients', p.permissions.recipients !== 'none'],
+    ['Email invoices', p.permissions.invoices === 'view'],
+    ['Batches', p.permissions.batches === 'on' && canPay],
+    [p.allowedCurrencies.join(' · ') || 'No currencies', canPay && p.allowedCurrencies.length > 0],
+  ];
+
+  const last = activity.find((a) => ['paid', 'prepared', 'recipient', 'declined', 'expired'].includes(a.kind));
+  const lastLine = last ? `${esc(last.text.split('. ')[0].replace(/\.$/, ''))} · ${timeAgo(last.ts)}` : 'Nothing yet. Ask Claude to pay a bill.';
+
+  $('pass-card').innerHTML = `
+    <div class="pc-head" data-act="consent" role="button" tabindex="0">
+      <div><span class="pc-label">Transfers</span><b class="pc-level">${LEVELS[t].name}</b><span class="pc-sub">${LEVEL_SHORT[t]}</span></div>
+      <div class="pc-time"><span class="pc-label">Access ends</span><b>${p.expiresAt ? timeLeft(p.expiresAt).replace(/^in /, '') : '–'}</b><span class="pc-sub">left</span></div>
+    </div>
+
+    <div class="pc-tiles">
+      <a class="pc-tile wait ${waitCount ? 'has' : ''}" href="#sec-approvals">
+        <span class="pc-label">Waiting for you</span>
+        <b>${waitCount}</b>
+        <small>${waitCount ? waitLine : 'All clear'}</small>
+      </a>
+      <div class="pc-tile">
+        <span class="pc-label">This month</span>
+        <b>${fmt(p.spentThisMonthEUR, 'EUR')}<em> / ${fmt(p.monthlyLimitEUR, 'EUR')}</em></b>
+        <div class="bar"><div style="width:${monthPct}%"></div></div>
+      </div>
+      <div class="pc-tile">
+        <span class="pc-label">Today</span>
+        <b>${p.sentTodayCount}<em> / ${p.dailyCountLimit} payments</em></b>
+        <div class="pc-dots">${dots}</div>
+      </div>
+    </div>
+
+    <div class="pc-caps">
+      <span class="pc-cap limit">Up to ${fmt(p.perPaymentLimitEUR, 'EUR')} each</span>
+      ${caps.map(([label, on]) => `<span class="pc-cap ${on ? '' : 'no'}">${on ? '✓' : '✕'} ${esc(label)}</span>`).join('')}
+    </div>
+
+    <div class="pc-foot">
+      <span class="pc-last">${claudeIcon(18)}<span>${lastLine}</span></span>
+      <span class="pc-actions">
+        <button class="pill pill-light pc-small" data-act="consent">Permissions</button>
+        <button class="pill pc-small pc-revoke" data-act="revoke">Revoke</button>
+      </span>
+    </div>`;
+}
+
 /** "in 29 days", "in 3 hours", "in 12 min". */
 const timeLeft = (iso) => {
   const m = Math.max(0, Math.round((Date.parse(iso) - Date.now()) / 60000));
@@ -245,7 +332,7 @@ const timeLeft = (iso) => {
   return `in ${m} min`;
 };
 
-function renderPass(p, recipients, drafts = []) {
+function renderPass(p, recipients, drafts = [], batches = [], activity = []) {
   lastPass = p;
   lastRecipients = recipients;
   const t = p.permissions.transfers;
@@ -271,30 +358,12 @@ function renderPass(p, recipients, drafts = []) {
     ? `<button class="pill pill-light pill-lg" data-act="restore">${p.revoked ? 'Restore' : 'Renew'} access</button>`
     : `<button class="pill pill-light pill-lg" data-act="revoke">Revoke access</button>`;
 
-  // "Claude · Agent Pass" account card: Claude's level and limits, plus what's waiting for you.
-  const pct = Math.min(100, (p.spentThisMonthEUR / p.monthlyLimitEUR) * 100);
-  const pending = drafts.filter((d) => d.status === 'awaiting_user');
-  const sentByClaude = drafts.filter((d) => d.status === 'paid' && !d.sentByUser).length;
-  $('pass-card').innerHTML = `
-    <div class="acct-title" data-act="consent" role="button" tabindex="0"><b>${off ? offWord : `Transfers: ${LEVELS[t].name}`}</b><span class="chev">›</span></div>
-    <div class="acct-sub">${off ? 'Claude has no access' : p.expiresAt ? `Access ends ${timeLeft(p.expiresAt)}` : 'Not connected'}</div>
-    <div class="pass-split">
-      <a class="waiting-box ${pending.length ? 'has' : ''}" href="#sec-approvals">
-        <span class="waiting-num">${pending.length}</span>
-        <span><b>${pending.length === 1 ? 'Payment waits' : 'Payments wait'} for you</b>
-        <small>${pending.length ? pending.slice(0, 2).map((d) => `${esc(d.recipientName)} · ${fmt(d.amount, d.currency)}`).join('<br>') : `${sentByClaude} sent by Claude so far`}</small></span>
-      </a>
-      <div class="acct-lines">
-        <div><span>Per payment</span><b>${fmt(p.perPaymentLimitEUR, 'EUR')}</b></div>
-        <div><span>Today</span><b>${p.sentTodayCount} / ${p.dailyCountLimit} payments</b></div>
-        <div><span>This month</span><b>${fmt(p.spentThisMonthEUR, 'EUR')} / ${fmt(p.monthlyLimitEUR, 'EUR')}</b></div>
-        <div class="bar"><div style="width:${pct}%"></div></div>
-      </div>
-    </div>`;
+  renderPassCard(p, drafts, batches, activity, off, offWord);
 
   // "Claude's access" panel
   const level = (v) => `<span class="level ${v === 'none' || v === 'off' || off ? 'off' : ''}">${off ? 'None' : LEVELS[v].name}</span>`;
   const left = Math.max(0, p.monthlyLimitEUR - p.spentThisMonthEUR);
+  const monthPct = Math.min(100, (p.spentThisMonthEUR / p.monthlyLimitEUR) * 100);
   const recipientMode = (r) => t !== 'act' ? '' : p.autoPay[r.id] === false
     ? '<span class="mode ask">Asks</span>' : '<span class="mode auto">Auto</span>';
   $('pass').innerHTML = `
@@ -315,7 +384,7 @@ function renderPass(p, recipients, drafts = []) {
     </div>
     <div class="spend">
       <div class="bar-label"><span>${fmt(p.spentThisMonthEUR, 'EUR')} sent this month</span><span>${fmt(left, 'EUR')} left</span></div>
-      <div class="bar"><div style="width:${pct}%"></div></div>
+      <div class="bar"><div style="width:${monthPct}%"></div></div>
     </div>
     <div class="group-title">Saved recipients</div>
     <div class="rlist">${[...recipients].sort((a, b) => (b.uses || 0) - (a.uses || 0)).map((r) => `
@@ -806,7 +875,7 @@ function render(s) {
   renderApprovals(s.drafts, s.batches);
   tickCountdowns();
   renderBalances(s.balances);
-  renderPass(s.pass, s.recipients, s.drafts);
+  renderPass(s.pass, s.recipients, s.drafts, s.batches, s.activity);
   renderConnect(s.pass);
   renderActivity(s.activity, s.drafts);
   if (first && location.hash === '#consent') openConsent(); // direct link to the consent screen
