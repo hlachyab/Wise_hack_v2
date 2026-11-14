@@ -36,6 +36,12 @@ const currencyFlag = (c, size, fallbackClass) =>
 /** Small country flag on the corner of an avatar. */
 const flagBadge = (cc) => (COUNTRY_FLAGS[cc] ? `<img class="badge" src="${COUNTRY_FLAGS[cc]}" width="20" height="20" alt="" />` : '');
 
+// A soft colour per recipient, so people are easy to tell apart.
+const TINTS = ['#E2F6D5', '#FCEC7D', '#E4F6F7', '#FFE1D6', '#E8E1FA', '#EDEFEB'];
+const tint = (s) => TINTS[[...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % TINTS.length];
+/** Round icon with initials (and a country flag) for a recipient. */
+const personIcon = (r) => `<span class="person" style="background:${tint(r.name)}">${esc(initials(r.name))}${flagBadge(r.country)}</span>`;
+
 const avatar = (name, country) => `<span class="icon-btn"><span class="initials">${esc(initials(name))}</span>${flagBadge(country)}</span>`;
 
 // ---------------------------------------------------------------------------
@@ -46,18 +52,103 @@ const seenApprovals = new Set(); // only cards that appear after page load slide
 let firstRender = true;
 let prevBalances = null; // to flash a balance that changed
 
-function renderApprovals(drafts) {
-  const pending = drafts.filter((d) => d.status === 'awaiting_user');
-  $('pending-count').innerHTML = pending.length ? `<span class="eyebrow">${pending.length} waiting</span>` : '';
-  $('nav-count').textContent = pending.length || '';
-  $('approvals-wrap').innerHTML = pending.length
-    ? pending.map((d) => approvalCard(d, !firstRender && !seenApprovals.has(d.id))).join('')
+let lastDrafts = [];
+let lastBatches = [];
+
+function renderApprovals(drafts, batches = []) {
+  lastDrafts = drafts;
+  lastBatches = batches;
+  const single = drafts.filter((d) => d.status === 'awaiting_user' && !d.batchId);
+  const openBatches = batches.filter((b) => b.status === 'awaiting_user');
+  const count = single.length + openBatches.length;
+  $('pending-count').innerHTML = count ? `<span class="eyebrow">${count} waiting</span>` : '';
+  $('nav-count').textContent = count || '';
+  const isNew = (id) => !firstRender && !seenApprovals.has(id);
+  $('approvals-wrap').innerHTML = count
+    ? openBatches.map((b) => batchCard(b, isNew(b.id))).join('') + single.map((d) => approvalCard(d, isNew(d.id))).join('')
     : `<div class="empty"><span class="icon-btn ok glyph">✓</span>Nothing needs your approval. Payments Claude prepares that break a rule will appear here.</div>`;
-  if (!firstRender) pending.filter((d) => !seenApprovals.has(d.id)).reverse().forEach(notifyApproval);
-  pruneToasts(pending);
-  pending.forEach((d) => seenApprovals.add(d.id));
+  if (!firstRender) {
+    single.filter((d) => !seenApprovals.has(d.id)).reverse().forEach(notifyApproval);
+    openBatches.filter((b) => !seenApprovals.has(b.id)).forEach(notifyBatch);
+  }
+  pruneToasts([...single, ...openBatches]);
+  [...single, ...openBatches].forEach((x) => seenApprovals.add(x.id));
   firstRender = false;
 }
+
+// ---------------------------------------------------------------------------
+// Batch approval: see where each payment goes, untick any, pay the rest with one tap
+// ---------------------------------------------------------------------------
+
+const unticked = new Map(); // batchId -> Set of draft ids the user unticked (survives re-renders)
+const riskyByDefault = (d) => d.rule.startsWith('hard_stop') || d.warnings.length > 0;
+
+function batchSelection(b) {
+  if (!unticked.has(b.id)) {
+    unticked.set(b.id, new Set(b.draftIds.map((id) => lastDrafts.find((d) => d.id === id)).filter((d) => d && riskyByDefault(d)).map((d) => d.id)));
+  }
+  const items = b.draftIds.map((id) => lastDrafts.find((d) => d.id === id)).filter(Boolean);
+  const waiting = items.filter((d) => d.status === 'awaiting_user');
+  const chosen = waiting.filter((d) => !unticked.get(b.id).has(d.id));
+  return { items, waiting, chosen };
+}
+
+const totalLine = (ds) => {
+  const byCcy = {};
+  for (const d of ds) byCcy[d.currency] = (byCcy[d.currency] || 0) + d.amount;
+  return Object.entries(byCcy).map(([c, a]) => fmt(Math.round(a * 100) / 100, c)).join(' + ') || '–';
+};
+
+function batchCard(b, isNew) {
+  const { items, waiting, chosen } = batchSelection(b);
+  const off = unticked.get(b.id);
+  const invoiceRef = (d) => d.invoiceId ? ' · invoice' : '';
+  const row = (d) => {
+    const blocked = d.status !== 'awaiting_user';
+    const r = { name: d.recipientName, country: d.iban ? d.iban.slice(0, 2) : '' };
+    return `
+      <label class="brow ${blocked ? 'blocked' : ''} ${riskyByDefault(d) ? 'risky' : ''}">
+        <input type="checkbox" data-batch="${esc(b.id)}" value="${esc(d.id)}" ${blocked ? 'disabled' : off.has(d.id) ? '' : 'checked'} />
+        ${personIcon(r)}
+        <span class="brow-main">
+          <span class="brow-line"><b>${esc(d.recipientName)}</b><b class="brow-amt">${fmt(d.amount, d.currency)}</b></span>
+          <small>${d.ibanMasked ? 'To ' + esc(d.ibanMasked) : 'New recipient'}${invoiceRef(d)}${d.note ? ' · “' + esc(d.note.slice(0, 40)) + (d.note.length > 40 ? '…' : '') + '”' : ''}</small>
+          <small class="brow-why">${blocked ? 'Blocked: ' : ''}${esc(d.reason)}</small>
+          ${d.warnings.map((w) => `<small class="brow-warn">⚠ ${esc(w)}</small>`).join('')}
+        </span>
+      </label>`;
+  };
+  return `
+    <div class="approval batch ${isNew ? 'new' : ''}" data-batch-card="${esc(b.id)}">
+      <div class="approval-top"><span>Batch from Claude · ${waiting.length} payment${waiting.length === 1 ? '' : 's'}</span><span>${timeAgo(b.createdAt)}</span></div>
+      <div class="approval-body">
+        <div class="batch-title"><b>${esc(b.title)}</b><small>Check where each payment goes. Untick anything you don't want to pay.</small></div>
+        <div class="brows">${items.map(row).join('')}</div>
+        <div class="batch-total"><span>Total for <b data-batch-count>${chosen.length}</b> selected</span><b data-batch-total>${totalLine(chosen)}</b></div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" data-act="batchdecline" data-id="${esc(b.id)}">Decline all</button>
+          <button class="btn btn-primary" data-act="batchpay" data-id="${esc(b.id)}" ${chosen.length ? '' : 'disabled'}>Pay ${chosen.length} with one tap</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// Ticking/unticking updates the total and the button without re-rendering the card.
+document.addEventListener('change', (e) => {
+  const box = e.target.closest('input[data-batch]');
+  if (!box) return;
+  const id = box.dataset.batch;
+  const set = unticked.get(id);
+  box.checked ? set.delete(box.value) : set.add(box.value);
+  const b = lastBatches.find((x) => x.id === id);
+  const { chosen } = batchSelection(b);
+  const card = document.querySelector(`[data-batch-card="${id}"]`);
+  card.querySelector('[data-batch-count]').textContent = chosen.length;
+  card.querySelector('[data-batch-total]').textContent = totalLine(chosen);
+  const btn = card.querySelector('[data-act="batchpay"]');
+  btn.textContent = `Pay ${chosen.length} with one tap`;
+  btn.disabled = !chosen.length;
+});
 
 function approvalCard(d, isNew) {
   const draftOnly = d.rule === 'pass.draft'; // within the rules; waiting only because the pass is Draft
@@ -107,6 +198,9 @@ const LEVELS = {
   view: { name: 'View', help: 'Claude can see this, but not change anything.' },
   draft: { name: 'Draft', help: 'Claude prepares transfers. You send each one with one tap in the Wise app.' },
   act: { name: 'Act', help: 'Claude sends money within your limits. Anything else waits for your approval.' },
+  add: { name: 'Add', help: 'Claude can add new recipients. Payments to them always ask you first.' },
+  off: { name: 'Off' },
+  on: { name: 'One tap' },
 };
 const TRANSFER_HELP = {
   none: "Claude can't see your transfers.",
@@ -157,7 +251,7 @@ function renderPass(p, recipients, drafts = []) {
   const sentByClaude = drafts.filter((d) => d.status === 'paid' && !d.sentByUser).length;
   $('pass-card').innerHTML = `
     <div class="acct-title" data-act="consent" role="button" tabindex="0"><b>${off ? offWord : `Transfers: ${LEVELS[t].name}`}</b><span class="chev">›</span></div>
-    <div class="acct-sub">${off ? 'Claude has no access' : p.expiresAt ? `Access ends ${timeLeft(p.expiresAt)}` : 'Access until you revoke it'}</div>
+    <div class="acct-sub">${off ? 'Claude has no access' : p.expiresAt ? `Access ends ${timeLeft(p.expiresAt)}` : 'Not connected'}</div>
     <div class="pass-split">
       <a class="waiting-box ${pending.length ? 'has' : ''}" href="#sec-approvals">
         <span class="waiting-num">${pending.length}</span>
@@ -173,17 +267,19 @@ function renderPass(p, recipients, drafts = []) {
     </div>`;
 
   // "Claude's access" panel
-  const level = (v) => `<span class="level ${v === 'none' || off ? 'off' : ''}">${off ? 'None' : LEVELS[v].name}</span>`;
+  const level = (v) => `<span class="level ${v === 'none' || v === 'off' || off ? 'off' : ''}">${off ? 'None' : LEVELS[v].name}</span>`;
   const left = Math.max(0, p.monthlyLimitEUR - p.spentThisMonthEUR);
   const recipientMode = (r) => t !== 'act' ? '' : p.autoPay[r.id] === false
-    ? '<span class="mode ask">Always asks</span>' : '<span class="mode auto">Pays on its own</span>';
+    ? '<span class="mode ask">Asks</span>' : '<span class="mode auto">Auto</span>';
   $('pass').innerHTML = `
     <div class="perm-rows">
       <div class="perm-row"><span>Balances</span>${level(p.permissions.balances)}</div>
       <div class="perm-row"><span>Recipients</span>${level(p.permissions.recipients)}</div>
       <div class="perm-row"><span>Exchange rates</span>${level(p.permissions.rates)}</div>
+      <div class="perm-row"><span>Email invoices</span>${level(p.permissions.invoices)}</div>
       <div class="perm-row"><span>Transfers<small>${esc(off ? "Claude can't see or do anything." : TRANSFER_HELP[t])}</small></span>${level(t)}</div>
-      <div class="perm-row"><span>Access lasts</span><span class="level ${p.expired ? 'off' : ''}">${p.expired ? 'Expired' : p.expiresAt ? 'Ends ' + timeLeft(p.expiresAt) : 'Until revoked'}</span></div>
+      <div class="perm-row"><span>Batch payments</span>${level(p.permissions.batches)}</div>
+      <div class="perm-row"><span>Access lasts</span><span class="level ${p.expired ? 'off' : ''}">${p.expired ? 'Expired' : p.expiresAt ? 'Ends ' + timeLeft(p.expiresAt) : '–'}</span></div>
     </div>
     <div class="limits">
       <div class="limit"><small>Per payment</small><b>${fmt(p.perPaymentLimitEUR, 'EUR')}</b></div>
@@ -196,11 +292,8 @@ function renderPass(p, recipients, drafts = []) {
       <div class="bar"><div style="width:${pct}%"></div></div>
     </div>
     <div class="group-title">Saved recipients</div>
-    ${recipients.map((r) => `
-      <div class="tx">
-        ${avatar(r.name, r.country)}
-        <div class="meta"><div class="head"><b>${esc(r.name)}</b>${recipientMode(r)}</div><small>${r.note ? esc(r.note) + ' · ' : ''}${esc(r.currency)} · ${esc(r.iban)}</small></div>
-      </div>`).join('')}
+    <div class="rlist">${[...recipients].sort((a, b) => (b.uses || 0) - (a.uses || 0)).map((r) => `
+      <div class="rrow">${personIcon(r)}<b>${esc(r.name)}</b>${r.addedBy === 'claude' ? '<em class="tag">Added by Claude</em>' : ''}<small>${esc(r.iban)} · ${esc(r.currency)}</small>${recipientMode(r)}</div>`).join('')}</div>
     <div class="group-title">Allowed currencies</div>
     <div class="chips">${p.allowedCurrencies.length ? p.allowedCurrencies.map((c) => `<span class="chip-outline">${esc(c)}</span>`).join('') : '<span class="hint">None</span>'}</div>
     <div class="pass-actions">
@@ -217,20 +310,24 @@ function renderPass(p, recipients, drafts = []) {
 
 const consent = $('consent');
 const form = $('consent-form');
-const PERM_OPTIONS = { balances: ['none', 'view'], recipients: ['none', 'view'], rates: ['none', 'view'], transfers: ['none', 'view', 'draft', 'act'] };
-const NEW_LEVELS = new Set(['draft', 'act']); // the levels this project adds to Wise's None / View
-const EXPIRY = { '1h': '1 hour', '1d': '1 day', '30d': '30 days', never: 'Until revoked' };
+const PERM_OPTIONS = {
+  balances: ['none', 'view'], recipients: ['none', 'view', 'add'], rates: ['none', 'view'], invoices: ['none', 'view'],
+  transfers: ['none', 'view', 'draft', 'act'], batches: ['off', 'on'],
+};
+const NEW_LEVELS = new Set(['draft', 'act', 'add', 'on']); // the levels this project adds to Wise's None / View
+const PAY_LEVELS = new Set(['draft', 'act']);
+const EXPIRY = { '1h': '1 hour', '1d': '1 day', '1w': '1 week', '30d': '30 days' }; // 30 days is the maximum
 const ALL_CURRENCIES = ['EUR', 'GBP', 'JPY'];
 let lastRecipients = [];
 
 // One-tap starting points. Each sets the whole form; the user can still adjust anything.
 const PRESETS = {
-  look: { permissions: { balances: 'view', recipients: 'view', rates: 'view', transfers: 'view' }, expiry: '1d' },
-  draft: { permissions: { balances: 'view', recipients: 'view', rates: 'view', transfers: 'draft' }, expiry: '30d', perPaymentLimitEUR: 200, monthlyLimitEUR: 500 },
+  look: { permissions: { balances: 'view', recipients: 'view', rates: 'view', invoices: 'none', transfers: 'view', batches: 'off' }, expiry: '1d' },
+  draft: { permissions: { balances: 'view', recipients: 'view', rates: 'view', invoices: 'view', transfers: 'draft', batches: 'off' }, expiry: '1w', perPaymentLimitEUR: 200, monthlyLimitEUR: 500 },
   bills: {
-    permissions: { balances: 'view', recipients: 'view', rates: 'view', transfers: 'act' }, expiry: '30d',
+    permissions: { balances: 'view', recipients: 'add', rates: 'view', invoices: 'view', transfers: 'act', batches: 'on' }, expiry: '30d',
     perPaymentLimitEUR: 200, monthlyLimitEUR: 500, dailyCountLimit: 3, allowedCurrencies: ['EUR'],
-    autoPay: { elisa: true, jana: false, hikari: false },
+    autoPay: { elisa: true, tallinnpower: true, jana: false, hikari: false, marko: false, sofia: false, lumi: false },
   },
 };
 
@@ -250,11 +347,55 @@ function fillConsent(p) {
   $('consent-currencies').innerHTML = ALL_CURRENCIES.map((c) => `
     <label class="toggle-chip"><input type="checkbox" name="currency" value="${c}" ${p.allowedCurrencies.includes(c) ? 'checked' : ''} />
       <span>${currencyFlag(c, 20, 'ccy-dot')}${c}</span></label>`).join('');
-  $('consent-recipients').innerHTML = lastRecipients.map((r) => `
-    <label class="switch-row">${avatar(r.name, r.country)}
-      <span class="switch-text"><b>${esc(r.name)}</b><small data-auto-label="${esc(r.id)}"></small></span>
-      <input type="checkbox" class="switch" name="autopay" value="${esc(r.id)}" ${p.autoPay[r.id] !== false ? 'checked' : ''} /></label>`).join('');
+  renderRecipientList(p.autoPay);
 }
+
+/** Compact one-line rows: "Frequently used" first, then everyone else. Search hides rows, so switches keep their state. */
+function renderRecipientList(autoPay) {
+  const byUse = [...lastRecipients].sort((a, b) => (b.uses || 0) - (a.uses || 0));
+  const frequent = byUse.filter((r) => (r.uses || 0) >= 5).slice(0, 3);
+  const rest = byUse.filter((r) => !frequent.includes(r)).sort((a, b) => a.name.localeCompare(b.name));
+  const row = (r) => `
+    <label class="rrow" data-search="${esc((r.name + ' ' + r.note + ' ' + r.iban).toLowerCase())}">
+      ${personIcon(r)}
+      <b>${esc(r.name)}</b>${r.addedBy === 'claude' ? '<em class="tag">Added by Claude</em>' : ''}
+      <small>${esc(r.iban)} · ${esc(r.currency)}</small>
+      <input type="checkbox" class="switch" name="autopay" value="${esc(r.id)}" ${autoPay[r.id] !== false ? 'checked' : ''} aria-label="Claude pays ${esc(r.name)} on its own" />
+    </label>`;
+  $('consent-recipients').innerHTML =
+    (frequent.length ? `<div class="rgroup"><span>Frequently used</span>${frequent.map(row).join('')}</div>` : '') +
+    `<div class="rgroup"><span>${frequent.length ? 'Everyone else' : 'Recipients'}</span>${rest.map(row).join('')}</div>` +
+    '<p class="rempty" hidden>No recipients match. Use “Add new” to add one.</p>';
+  filterRecipients();
+}
+
+function filterRecipients() {
+  const q = $('recipient-search').value.trim().toLowerCase();
+  let shown = 0;
+  document.querySelectorAll('#consent-recipients .rrow').forEach((el) => {
+    el.hidden = !!q && !el.dataset.search.includes(q);
+    if (!el.hidden) shown++;
+  });
+  document.querySelectorAll('#consent-recipients .rgroup').forEach((g) => (g.hidden = !g.querySelector('.rrow:not([hidden])')));
+  document.querySelector('#consent-recipients .rempty').hidden = shown > 0;
+}
+$('recipient-search').addEventListener('input', filterRecipients);
+
+// "Add new" recipient, from inside the permissions screen. Saved right away; Claude always asks before paying them.
+$('add-recipient-btn').addEventListener('click', () => { $('add-form').hidden = !$('add-form').hidden; form.newName.focus(); });
+$('add-save').addEventListener('click', async () => {
+  const body = { name: form.newName.value, iban: form.newIban.value, currency: form.newCurrency.value };
+  const res = await fetch('/api/recipients', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { $('add-error').textContent = data.error || 'Something went wrong.'; return; }
+  $('add-error').textContent = '';
+  form.newName.value = form.newIban.value = '';
+  $('add-form').hidden = true;
+  const keep = readConsent().autoPay;
+  lastRecipients = data.recipients;
+  renderRecipientList({ ...data.pass.autoPay, ...keep });
+  syncConsent();
+});
 
 let consentMode = 'pass'; // 'connect' when fine-tuning from the connect screen (saves locally, not to the server)
 
@@ -271,7 +412,7 @@ function openConsent(mode = 'pass', from = lastPass) {
 function readConsent() {
   const checked = (name) => [...form.querySelectorAll(`input[name="${name}"]`)];
   return {
-    permissions: { balances: form.balances.value, recipients: form.recipients.value, rates: form.rates.value, transfers: form.transfers.value },
+    permissions: Object.fromEntries(Object.keys(PERM_OPTIONS).map((k) => [k, form[k].value])),
     perPaymentLimitEUR: Number(form.perPaymentLimitEUR.value),
     monthlyLimitEUR: Number(form.monthlyLimitEUR.value),
     dailyCountLimit: Number(form.dailyCountLimit.value),
@@ -295,12 +436,10 @@ function syncConsent() {
   const b = readConsent();
   const t = b.permissions.transfers;
   $('transfers-help').textContent = TRANSFER_HELP[t];
-  $('perm-limits').hidden = !NEW_LEVELS.has(t);
+  $('perm-limits').hidden = !PAY_LEVELS.has(t);
   form.querySelectorAll('.act-only').forEach((el) => (el.hidden = t !== 'act'));
-  for (const [id, on] of Object.entries(b.autoPay)) {
-    const el = form.querySelector(`[data-auto-label="${id}"]`);
-    if (el) el.textContent = on ? 'Pays on its own, within your limits' : 'Always asks you first';
-  }
+  $('invoices-help').textContent = b.permissions.invoices === 'view'
+    ? 'Claude can read invoices in your email and prepare payments for them.' : "Claude can't read your email.";
   const preset = matchingPreset(b);
   document.querySelectorAll('.preset').forEach((el) => el.classList.toggle('on', el.dataset.preset === preset));
 
@@ -310,7 +449,7 @@ function syncConsent() {
 /** Plain-English "Claude can / asks you first / can never" for a pass body. */
 function summaryHtml(b) {
   const t = b.permissions.transfers;
-  const sees = ['balances', 'recipients', 'rates'].filter((k) => b.permissions[k] === 'view')
+  const sees = ['balances', 'recipients', 'rates'].filter((k) => b.permissions[k] !== 'none')
     .map((k) => ({ balances: 'balances', recipients: 'recipients', rates: 'exchange rates' }[k]));
   const names = Object.fromEntries(lastRecipients.map((r) => [r.id, r.name]));
   const auto = Object.entries(b.autoPay).filter(([, on]) => on).map(([id]) => names[id]);
@@ -318,6 +457,9 @@ function summaryHtml(b) {
   const ccy = b.allowedCurrencies.length ? b.allowedCurrencies.join(', ') : 'no currencies';
   const can = [], asks = [], cannot = [];
   if (sees.length) can.push(`See your ${list(sees)}`);
+  if (b.permissions.invoices === 'view') can.push('Read invoices in your email');
+  if (b.permissions.recipients === 'add') can.push('Add new recipients (payments to them always ask you)');
+  if (b.permissions.batches === 'on' && PAY_LEVELS.has(t)) asks.push('Batches of payments: you check each one, then pay all with one tap');
   if (t === 'view' || t === 'none') cannot.push('Prepare or send any money');
   if (t === 'draft') { can.push(`Prepare payments in ${ccy}`); asks.push('Every payment: you send it with one tap'); }
   if (t === 'act') {
@@ -326,12 +468,16 @@ function summaryHtml(b) {
     asks.push(`Over ${fmt(b.perPaymentLimitEUR, 'EUR')}, over ${fmt(b.monthlyLimitEUR, 'EUR')} a month, or more than ${b.dailyCountLimit} a day`);
   }
   if (t === 'draft' || t === 'act') asks.push('New recipients or changed bank details');
-  cannot.push('Add recipients or change these settings');
+  cannot.push(b.permissions.recipients === 'add' ? 'Change saved bank details or these settings' : 'Add recipients or change these settings');
+  cannot.push('Approve a payment: that always takes your fingerprint or Smart-ID');
   const line = (cls, title, items) => items.length ? `<div class="sum ${cls}"><b>${title}</b><ul>${items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul></div>` : '';
   return line('can', 'Claude can', can) + line('ask', 'Claude asks you first', asks) + line('cannot', 'Claude can never', cannot) +
-    `<div class="sum-foot">Access ${b.expiry === 'never' ? 'lasts until you revoke it' : `ends in ${EXPIRY[b.expiry]}`}.</div>`;
+    `<div class="sum-foot">Access ends in ${EXPIRY[b.expiry]} (30 days at most). You can revoke it any time.</div>`;
 }
-const list = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+const list = (xs) => {
+  if (xs.length > 3) xs = [...xs.slice(0, 2), `${xs.length - 2} others`];
+  return xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
+};
 
 form.addEventListener('change', syncConsent);
 form.addEventListener('input', syncConsent);
@@ -348,7 +494,7 @@ consent.addEventListener('click', (e) => {
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const body = readConsent();
-  if (NEW_LEVELS.has(body.permissions.transfers) && !body.allowedCurrencies.length) {
+  if (PAY_LEVELS.has(body.permissions.transfers) && !body.allowedCurrencies.length) {
     $('consent-error').textContent = 'Pick at least one currency, or set Transfers to View.';
     return;
   }
@@ -415,6 +561,90 @@ function notifyApproval(d) {
     n.onclick = () => { window.focus(); n.close(); };
   }
 }
+
+/** A batch arrived: pop up a summary that takes you to the batch card. */
+function notifyBatch(b) {
+  const { waiting } = batchSelection(b);
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.dataset.id = b.id;
+  el.innerHTML = `
+    <div class="toast-top"><span>Batch from Claude</span><button class="toast-x" aria-label="Dismiss">✕</button></div>
+    <div class="toast-body">
+      <span class="icon-btn glyph">${waiting.length}</span>
+      <div class="meta"><b>${esc(b.title)} · ${totalLine(waiting)}</b><small>${esc(list(waiting.map((d) => d.recipientName)))}. Check each one, then pay all with one tap.</small></div>
+    </div>
+    <div class="btn-row"><a class="btn btn-primary" href="#sec-approvals">Review batch</a></div>`;
+  el.querySelector('.toast-x').addEventListener('click', () => el.remove());
+  el.querySelector('a').addEventListener('click', () => el.remove());
+  toasts.prepend(el);
+  if (notifyOk() && document.hidden) new Notification('Claude sent a batch of payments', { body: `${b.title}: ${totalLine(waiting)}`, tag: b.id });
+}
+
+// ---------------------------------------------------------------------------
+// Identity check (mock): fingerprint, or Smart-ID with a verification code
+// ---------------------------------------------------------------------------
+
+const verifyDlg = $('verify');
+let verifyDone = null;
+
+/** Ask the user to confirm with their ID. Resolves true after "Continue", false if cancelled. */
+function verify(what, drafts) {
+  $('verify-what').textContent = what;
+  $('verify-list').innerHTML = drafts.map((d) => `
+    <div class="vrow">${personIcon({ name: d.recipientName, country: d.iban ? d.iban.slice(0, 2) : '' })}
+      <span><b>${esc(d.recipientName)}</b><small>${esc(d.ibanMasked || 'New recipient')}</small></span>
+      <b>${fmt(d.amount, d.currency)}</b></div>`).join('');
+  setMethod('finger');
+  verifyDlg.showModal();
+  return new Promise((resolve) => { verifyDone = resolve; });
+}
+
+let smartTimer = null;
+function setMethod(m) {
+  clearTimeout(smartTimer);
+  verifyDlg.dataset.method = m;
+  $('pane-finger').hidden = m !== 'finger';
+  $('pane-smartid').hidden = m !== 'smartid';
+  $('verified').hidden = true;
+  $('verify-go').disabled = true;
+  $('finger').classList.remove('scanning', 'ok');
+  $('finger-hint').textContent = 'Touch the sensor to confirm';
+  $('verify-switch').hidden = false;
+  $('verify-switch').textContent = m === 'finger' ? 'Use Smart-ID' : 'Use fingerprint';
+  if (m === 'smartid') {
+    $('smartid-code').textContent = String(1000 + Math.floor(Math.random() * 9000));
+    $('smartid-hint').textContent = 'Check the code matches in your Smart-ID app, then enter your PIN there.';
+    smartTimer = setTimeout(() => verified('Smart-ID'), 2600); // mock: the app confirms by itself
+  }
+}
+
+function verified(how) {
+  $('finger').classList.add('ok');
+  $('pane-finger').hidden = $('pane-smartid').hidden = true;
+  $('verified').hidden = false;
+  $('verified-how').textContent = `${how} · just now`;
+  $('verify-switch').hidden = true;
+  $('verify-go').disabled = false;
+  $('verify-go').focus();
+}
+
+$('finger').addEventListener('click', () => {
+  if ($('finger').classList.contains('scanning')) return;
+  $('finger').classList.add('scanning');
+  $('finger-hint').textContent = 'Scanning…';
+  setTimeout(() => verified('Fingerprint'), 1100);
+});
+$('verify-switch').addEventListener('click', () => setMethod(verifyDlg.dataset.method === 'finger' ? 'smartid' : 'finger'));
+const finishVerify = (ok) => {
+  clearTimeout(smartTimer);
+  if (verifyDlg.open) verifyDlg.close();
+  verifyDone?.(ok);
+  verifyDone = null;
+};
+$('verify-go').addEventListener('click', () => finishVerify(true));
+verifyDlg.addEventListener('click', (e) => { if (e.target.closest('[data-vclose]') || e.target === verifyDlg) finishVerify(false); });
+verifyDlg.addEventListener('cancel', () => finishVerify(false));
 
 /** Remove pop-ups for drafts that are no longer waiting (approved, declined, or reset). */
 function pruneToasts(pending) {
@@ -497,7 +727,8 @@ function activityLook(a) {
     case 'declined': return { icon: '✕', cls: 'no glyph', label: 'Declined by you', muted: true };
     case 'blocked': return { icon: '✕', cls: 'no glyph', label: 'Blocked at send time', muted: true };
     case 'revoked': return { icon: '⏻', cls: 'no glyph', label: 'Access revoked' };
-    case 'restored': return { icon: '↺', cls: 'glyph', label: 'Access restored' };
+    case 'restored': return { icon: '↺', cls: 'glyph', label: a.rule === 'pass.connected' ? 'Connected' : 'Access restored' };
+    case 'recipient': return { icon: '+', cls: 'glyph', label: 'New recipient' };
     case 'prepared':
       if (a.decision === 'needs_approval') return { icon: '!', cls: 'wait glyph', label: 'Waiting for you' };
       if (a.decision === 'block') return { icon: '✕', cls: 'no glyph', label: 'Blocked', muted: true };
@@ -512,7 +743,7 @@ function renderActivity(activity, drafts) {
     ? activity.map((a) => {
         const look = activityLook(a);
         const d = a.draftId ? draftsById[a.draftId] : null;
-        const title = d ? d.recipientName : ['revoked', 'restored', 'pass'].includes(a.kind) ? 'Claude' : 'Wise';
+        const title = d ? d.recipientName : a.batchId ? 'Batch of payments' : 'Claude';
         const amount = d ? `<span class="amount ${look.muted ? 'muted' : ''}">${num(d.amount, d.currency)} ${esc(d.currency)}</span>` : '';
         return `<div class="tx">
           <span class="icon-btn ${look.cls}">${look.icon}</span>
@@ -529,7 +760,7 @@ function renderActivity(activity, drafts) {
 
 function render(s) {
   const first = !lastPass;
-  renderApprovals(s.drafts);
+  renderApprovals(s.drafts, s.batches);
   renderBalances(s.balances);
   renderPass(s.pass, s.recipients, s.drafts);
   renderConnect(s.pass);
@@ -543,7 +774,7 @@ function render(s) {
 
 let lastKey = '';
 
-const API_VERSION = 4; // must match STATE_VERSION in src/state.js
+const API_VERSION = 5; // must match STATE_VERSION in src/state.js
 
 async function poll() {
   let s;
@@ -567,9 +798,9 @@ async function poll() {
   }
 }
 
-async function post(url) {
+async function post(url, body) {
   try {
-    const res = await fetch(url, { method: 'POST' });
+    const res = await fetch(url, { method: 'POST', ...(body && { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }) });
     if (!res.ok) console.warn((await res.json().catch(() => ({}))).error || res.statusText);
   } finally {
     lastKey = '';
@@ -578,8 +809,20 @@ async function post(url) {
 }
 
 const ACTIONS = {
-  approve: (id) => post(`/api/drafts/${encodeURIComponent(id)}/approve`),
+  // Approving always takes an ID check first (mock fingerprint / Smart-ID).
+  approve: async (id) => {
+    const d = lastDrafts.find((x) => x.id === id);
+    if (!d || !(await verify(`Send ${fmt(d.amount, d.currency)} to ${d.recipientName}`, [d]))) return;
+    post(`/api/drafts/${encodeURIComponent(id)}/approve`);
+  },
   decline: (id) => post(`/api/drafts/${encodeURIComponent(id)}/decline`),
+  batchpay: async (id) => {
+    const b = lastBatches.find((x) => x.id === id);
+    const { chosen } = batchSelection(b);
+    if (!chosen.length || !(await verify(`Pay ${chosen.length} payment${chosen.length === 1 ? '' : 's'}: ${totalLine(chosen)}`, chosen))) return;
+    post(`/api/batches/${encodeURIComponent(id)}/approve`, { draftIds: chosen.map((d) => d.id) });
+  },
+  batchdecline: (id) => post(`/api/batches/${encodeURIComponent(id)}/decline`),
   revoke: () => post('/api/revoke'),
   restore: () => post('/api/restore'),
   consent: openConsent,

@@ -148,7 +148,11 @@ The same screen also lets you choose:
 - **Who Claude can pay on its own**: a switch for each saved recipient ("Always asks you first" otherwise).
 - **Currencies**: which currencies Claude may send.
 - **Payments a day**: how many payments Claude may send on its own each day.
-- **Access lasts**: 1 hour, 1 day, 30 days, or until revoked.
+- **Access lasts**: 1 hour, 1 day, 1 week or 30 days (30 days at most, so access always runs out).
+- **Email invoices**: whether Claude may read invoices in your (mock) inbox.
+- **Recipients: Add**: Claude may add new recipients; payments to them always ask you first.
+- **Batch payments**: Claude may send several payments as one request, which you pay with one tap.
+- **Search and add recipients**: the recipient list has a search box, a *Frequently used* group and *Add new*.
 
 One-tap presets (*Just looking*, *Drafts for me*, *Pay my bills*) fill everything in, and a plain-English summary shows what Claude **can do**, what it **asks you first**, and what it **can never** do.
 
@@ -162,6 +166,14 @@ One-tap presets (*Just looking*, *Drafts for me*, *Pay my bills*) fill everythin
 ### 5. Approve, then stay in control
 
 Click **Approve and send**. Jana is paid, and Claude's card updates by itself to *You sent*. Scroll through the **activity log**: every action has a plain-language reason. Finally click **Revoke access**: Claude can no longer see or do anything. **Restore access** brings it back.
+
+### 6. Pay your bills from email (batch)
+
+Set the pass to the **Pay my bills** preset (Email invoices: View, Recipients: Add, Batch payments: One tap). Then ask:
+
+> Check my email for new invoices and pay them.
+
+Claude calls `check_invoices` and finds 4 invoices. Nordic Cloud OÜ isn't a saved recipient, so Claude adds it with `add_recipient`. Then it sends **one batch** with `prepare_batch`. A pop-up appears in the Wise app. The batch card shows where each payment goes and why. The Hikari invoice has changed bank details and hidden instructions, so it starts **unticked**. Click **Pay 3 with one tap**, confirm with your **fingerprint** (or **Smart-ID**), then **Continue**. The three invoices are paid and drop out of the inbox.
 
 ### Bonus: a prompt-injection invoice
 
@@ -236,8 +248,11 @@ wise-mcp/
 | `confirm_payment` | Sends a `ready` draft. Re-checks the pass first. | Transfers: Act |
 | `payment_status` | Status of a draft. The chat card uses it to update live. | Transfers: View |
 | `get_pending_approvals` | Payments waiting for you in the Wise app | Transfers: View |
+| `check_invoices` | Unpaid invoices from a mock email inbox (vendor, amount, due date, IBAN, reference) | Email invoices: View |
+| `add_recipient` | Saves a new recipient. Payments to them always ask you first, until you turn on auto-pay. | Recipients: Add |
+| `prepare_batch` | Up to 10 payments as **one request**. Each is checked against the pass; blocked ones are left out. You check each one and pay them all with one tap. | Batch payments: One tap |
 
-There is deliberately **no tool** to approve payments, add recipients or change the pass. When access is revoked, every tool is refused.
+There is deliberately **no tool** to approve payments, change saved bank details or change the pass. Approving always takes your fingerprint or Smart-ID (mocked) in the Wise app. When access is revoked or expired, every tool is refused.
 
 ## Agent Pass rules
 
@@ -256,6 +271,7 @@ Checked in this order; the first match wins.
 | 7 | Would go over the monthly limit (€500) | **needs your approval** | `limit.monthly` |
 | 7b | Claude already sent its daily maximum (Act) | **needs your approval** | `limit.daily_count` |
 | 7c | Recipient set to "always ask" (Act) | **needs your approval** | `pass.recipient_ask` |
+| – | Part of a batch and otherwise allowed | **needs your approval** (one tap for the whole batch) | `batch.one_tap` |
 | 8 | Within the rules, but Transfers is Draft | **needs your approval** (one tap to send) | `pass.draft` |
 | 9 | Otherwise | **allow** | `within_pass` |
 
@@ -269,9 +285,12 @@ All POST endpoints return the full page state (the `GET /api/state` shape) or `{
 |---|---|---|
 | GET | `/api/state` | Balances, recipients (masked), pass, drafts, activity |
 | POST | `/api/connect` | First connect. Body: `{ "mode": "readonly" }`, or `{ "mode": "custom", …same fields as /api/pass }` |
-| POST | `/api/pass` | Save the consent screen. Body: `{ "permissions": { "balances", "recipients", "rates", "transfers" }, "perPaymentLimitEUR", "monthlyLimitEUR", "dailyCountLimit", "allowedCurrencies", "autoPay": { "<recipientId>": true/false }, "expiry": "1h" \| "1d" \| "30d" \| "never" }` (every field optional) |
+| POST | `/api/pass` | Save the consent screen. Body: `{ "permissions": { "balances", "recipients", "rates", "transfers" }, "perPaymentLimitEUR", "monthlyLimitEUR", "dailyCountLimit", "allowedCurrencies", "autoPay": { "<recipientId>": true/false }, "expiry": "1h" \| "1d" \| "1w" \| "30d" }` (30 days at most` (every field optional) |
 | POST | `/api/drafts/:id/approve` | Approve **and send** a draft that is `awaiting_user` |
 | POST | `/api/drafts/:id/decline` | Decline a draft that is `awaiting_user` |
+| POST | `/api/batches/:id/approve` | Pay the chosen payments of a batch. Body: `{ "draftIds": [...] }` (default: all waiting); the rest are declined |
+| POST | `/api/batches/:id/decline` | Decline a whole batch |
+| POST | `/api/recipients` | Add a recipient yourself. Body: `{ "name", "iban", "currency" }` |
 | POST | `/api/revoke` | Turn Claude's access off |
 | POST | `/api/restore` | Turn it back on (also renews an expired pass) |
 | POST | `/api/reset` | Reset all demo data |

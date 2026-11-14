@@ -32,7 +32,7 @@
     <h2>Accounts to connect</h2>
     <label class="account-row">
       <span class="account-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg></span>
-      <b>Alex Kask</b><small>Personal</small>
+      <b>Omar Haddad</b><small>Personal</small>
       <input type="checkbox" class="square-check" id="connect-account" checked />
     </label>
 
@@ -52,6 +52,7 @@
         <li>View transfer delivery estimates and payment details.</li>
         <li>View your account transactions and activity.</li>
         <li>View exchange rates, fees and quotes.</li>
+        <li>Read invoices in your email.</li>
       </ul>
     </div>
 
@@ -59,7 +60,7 @@
       <p class="tab-intro">Let Claude do more than look. You set the rules; Wise checks every payment against them.</p>
       <div class="presets" id="connect-presets">
         <button type="button" class="preset" data-cpreset="draft"><b>Drafts for me</b><small>Claude prepares, you send</small></button>
-        <button type="button" class="preset" data-cpreset="bills"><b>Pay my bills</b><small>Small payments to Elisa, 30 days</small></button>
+        <button type="button" class="preset" data-cpreset="bills"><b>Pay my bills</b><small>Invoices from email, one tap, 30 days</small></button>
       </div>
       <div class="summary" id="connect-summary"></div>
       <button type="button" class="btn btn-secondary fine-tune" id="connect-finetune">Fine-tune every permission</button>
@@ -97,7 +98,7 @@
       <span id="conn" class="pill pill-green">Agent Pass</span>
       <button class="pill pill-light" data-act="consent">Permissions <b>＋</b></button>
       <button class="round-btn bell" id="notify-btn" title="Turn on notifications" aria-label="Turn on notifications"><svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 21h4"/></svg><i id="bell-dot"></i></button>
-      <div class="me"><span class="me-avatar">AK<i></i></span><span class="me-name">Alex Kask</span><span class="chev">›</span></div>
+      <div class="me"><span class="me-avatar">OH<i></i></span><span class="me-name">Omar Haddad</span><span class="chev">›</span></div>
     </header>
 
     <div id="offline" class="offline">Can't reach the Wise server on port 4000. Start it with <code>npm run web</code>, or open Claude Desktop.</div>
@@ -185,13 +186,14 @@
     <div class="presets" id="presets">
       <button type="button" class="preset" data-preset="look"><b>Just looking</b><small>Claude can see, not pay</small></button>
       <button type="button" class="preset" data-preset="draft"><b>Drafts for me</b><small>Claude prepares, you send</small></button>
-      <button type="button" class="preset" data-preset="bills"><b>Pay my bills</b><small>Small payments to Elisa, 30 days</small></button>
+      <button type="button" class="preset" data-preset="bills"><b>Pay my bills</b><small>Invoices from email, one tap, 30 days</small></button>
       <button type="button" class="preset" data-preset="custom" disabled><b>Custom</b><small>Your own settings</small></button>
     </div>
 
     <div class="perm"><div class="perm-head"><b>Balances</b><span class="seg" data-perm="balances"></span></div></div>
     <div class="perm"><div class="perm-head"><b>Recipients</b><span class="seg" data-perm="recipients"></span></div></div>
     <div class="perm"><div class="perm-head"><b>Exchange rates</b><span class="seg" data-perm="rates"></span></div></div>
+    <div class="perm"><div class="perm-head"><b>Email invoices</b><span class="seg" data-perm="invoices"></span></div><p class="perm-help" id="invoices-help"></p></div>
     <div class="perm perm-main">
       <div class="perm-head"><b>Transfers</b><span class="seg" data-perm="transfers"></span></div>
       <p class="perm-help" id="transfers-help"></p>
@@ -200,10 +202,22 @@
         <label>Per month, up to<span class="money-in"><span>€</span><input name="monthlyLimitEUR" type="number" min="1" step="1" inputmode="numeric" /></span></label>
         <label class="act-only">Payments a day, up to<span class="money-in"><span>#</span><input name="dailyCountLimit" type="number" min="1" max="50" step="1" inputmode="numeric" /></span></label>
         <div class="field"><span class="field-label">Currencies</span><div class="chips" id="consent-currencies"></div></div>
-        <div class="field act-only"><span class="field-label">Who Claude can pay on its own</span><div id="consent-recipients"></div></div>
+        <div class="field act-only">
+          <div class="field-head"><span class="field-label">Who Claude can pay on its own</span><button type="button" class="link-add" id="add-recipient-btn">＋ Add new</button></div>
+          <div class="add-form" id="add-form" hidden>
+            <input name="newName" placeholder="Name" autocomplete="off" />
+            <input name="newIban" placeholder="IBAN" autocomplete="off" />
+            <select name="newCurrency"><option>EUR</option><option>GBP</option><option>JPY</option></select>
+            <button type="button" class="btn btn-primary" id="add-save">Add</button>
+            <p class="consent-error" id="add-error"></p>
+          </div>
+          <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input type="search" id="recipient-search" placeholder="Search recipients" autocomplete="off" /></label>
+          <div id="consent-recipients" class="rlist"></div>
+        </div>
         <p class="perm-note">New recipients and changed bank details always need your approval.</p>
       </div>
     </div>
+    <div class="perm"><div class="perm-head"><b>Batch payments</b><span class="seg" data-perm="batches"></span></div><p class="perm-help">Claude can send several payments as one request. You see where each one goes and pay them all with one tap.</p></div>
     <div class="perm"><div class="perm-head"><b>Access lasts</b><span class="seg" data-perm="expiry"></span></div></div>
 
     <div class="summary" id="consent-summary"></div>
@@ -214,6 +228,30 @@
       <button type="submit" class="btn btn-primary">Allow</button>
     </div>
   </form>
+</dialog>
+
+<!-- Identity check before any payment is approved (mock fingerprint / Smart-ID). -->
+<dialog id="verify" class="consent verify" aria-labelledby="verify-title">
+  <div class="consent-top"><img class="logo" src="/assets/wise-logo-forest.svg" alt="Wise" /><button type="button" class="close" data-vclose aria-label="Cancel">✕</button></div>
+  <h2 id="verify-title" class="title-sub">Confirm it's you</h2>
+  <p class="subtitle" id="verify-what"></p>
+  <div class="verify-list" id="verify-list"></div>
+  <div class="verify-pane" id="pane-finger">
+    <button type="button" class="finger" id="finger" aria-label="Scan fingerprint">
+      <svg viewBox="0 0 64 64"><path d="M20 26a12 12 0 0 1 24 0v6"/><path d="M14 30v-4a18 18 0 0 1 36 0v10"/><path d="M26 44V26a6 6 0 0 1 12 0v12c0 6 2 10 4 12"/><path d="M32 26v18c0 5 2 9 5 12"/><path d="M20 34v6c0 6 2 11 6 15"/><path d="M44 42c0 3 1 6 2 8"/></svg>
+      <span class="finger-fill"></span>
+    </button>
+    <p class="verify-hint" id="finger-hint">Touch the sensor to confirm</p>
+  </div>
+  <div class="verify-pane" id="pane-smartid" hidden>
+    <div class="smartid-code"><small>Smart-ID verification code</small><b id="smartid-code">0000</b></div>
+    <p class="verify-hint" id="smartid-hint">Check the code matches in your Smart-ID app, then enter your PIN there.</p>
+  </div>
+  <div class="verified" id="verified" hidden><span>✓</span><div><b>Identity confirmed</b><small id="verified-how"></small></div></div>
+  <div class="btn-row">
+    <button type="button" class="btn btn-secondary" id="verify-switch">Use Smart-ID</button>
+    <button type="button" class="btn btn-primary" id="verify-go" disabled>Continue</button>
+  </div>
 </dialog>
 
 <!-- Pop-up notifications for new approvals (bottom right). -->

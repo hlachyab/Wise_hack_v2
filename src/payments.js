@@ -10,7 +10,7 @@
 //   awaiting_user or blocked if the user changed their pass in the meantime.
 
 import { randomUUID } from 'node:crypto';
-import { state, addActivity, resetState, sentTodayCount, today, EXPIRY_MS, READ_LEVELS, TRANSFER_LEVELS } from './state.js';
+import { state, addActivity, resetState, sentTodayCount, today, EXPIRY_MS, PERMISSION_LEVELS } from './state.js';
 import { decide, injectionWarnings, STATUS_FOR } from './rules.js';
 import { CURRENCIES, FEE_FIXED_EUR, FEE_PERCENT, RATES_PER_EUR, fmt, maskIban, normIban, round2, toEUR } from './money.js';
 import { log } from './log.js';
@@ -50,11 +50,18 @@ export function getQuote({ amount, fromCurrency, toCurrency }) {
 
 const PREPARED_TEXT = { allow: 'ready to send', needs_approval: 'waiting for you', block: 'blocked' };
 
-/** Create a draft and check it against the Agent Pass. Never moves money. */
-export function preparePayment({ recipientId, amount, currency, iban, note }) {
+/**
+ * Create a draft and check it against the Agent Pass. Never moves money.
+ * batchId: part of a batch, so anything the pass allows waits for the user's one-tap "Pay all".
+ * invoiceId: the inbox invoice this pays; it is marked paid when the draft is sent.
+ */
+export function preparePayment({ recipientId, amount, currency, iban, note, invoiceId, batchId }) {
   const id = String(recipientId).trim().toLowerCase();
   const saved = state.recipients[id];
-  const result = decide({ recipientId: id, amount, currency, iban });
+  let result = decide({ recipientId: id, amount, currency, iban });
+  if (batchId && result.decision === 'allow') {
+    result = { decision: 'needs_approval', rule: 'batch.one_tap', reason: `${result.reason} Part of a batch, so you confirm it together with the others.` };
+  }
   const draft = {
     id: `drf_${randomUUID().slice(0, 8)}`,
     createdAt: new Date().toISOString(),
@@ -71,8 +78,11 @@ export function preparePayment({ recipientId, amount, currency, iban, note }) {
     rule: result.rule,
     reason: result.reason,
     warnings: injectionWarnings(note),
+    invoiceId: invoiceId && state.inbox.some((i) => i.id === invoiceId) ? invoiceId : null,
+    batchId: batchId || null,
   };
   state.drafts[draft.id] = draft;
+  if (batchId) return draft; // the batch logs one activity entry for all its payments
   addActivity({
     kind: 'prepared',
     draftId: draft.id,
@@ -94,6 +104,10 @@ function send(d, byUser) {
   d.paidAt = new Date().toISOString();
   d.sentByUser = byUser;
   if (!byUser) state.pass.sentToday = { date: today(), count: sentTodayCount() + 1 };
+  const r = state.recipients[d.recipientId];
+  if (r) r.uses = (r.uses || 0) + 1;
+  const inv = d.invoiceId && state.inbox.find((i) => i.id === d.invoiceId);
+  if (inv) inv.status = 'paid';
   addActivity({
     kind: 'paid',
     draftId: d.id,
@@ -139,6 +153,67 @@ export function confirmPayment(draftId) {
   return error ? { ok: false, error, draft: d } : { ok: true, draft: d };
 }
 
+const MAX_BATCH = 10;
+
+/**
+ * Several payments as one request. Each is checked against the pass on its own; blocked ones
+ * are left out, everything else waits for the user to confirm all of them with one tap.
+ */
+export function prepareBatch({ title, payments }) {
+  const batch = {
+    id: `bat_${randomUUID().slice(0, 8)}`,
+    createdAt: new Date().toISOString(),
+    title: String(title || 'Payments').slice(0, 80),
+    draftIds: [],
+    status: 'awaiting_user',
+  };
+  for (const p of payments.slice(0, MAX_BATCH)) batch.draftIds.push(preparePayment({ ...p, batchId: batch.id }).id);
+  const drafts = batch.draftIds.map((id) => state.drafts[id]);
+  const waiting = drafts.filter((d) => d.status === 'awaiting_user');
+  if (!waiting.length) batch.status = 'blocked';
+  state.batches[batch.id] = batch;
+  const totalEUR = round2(waiting.reduce((t, d) => t + (d.amountEUR || 0), 0));
+  addActivity({
+    kind: 'prepared',
+    batchId: batch.id,
+    decision: waiting.length ? 'needs_approval' : 'block',
+    rule: 'batch.one_tap',
+    text: `Claude prepared a batch "${batch.title}": ${waiting.length} payment${waiting.length === 1 ? '' : 's'} (about ${fmt(totalEUR, 'EUR')}) waiting for one tap` +
+      (drafts.length > waiting.length ? `, ${drafts.length - waiting.length} blocked.` : '.'),
+  });
+  log(`batch ${batch.id}: ${waiting.length}/${drafts.length} waiting`);
+  return { batch, drafts };
+}
+
+/** Plain IBAN check: 2 letters, 2 digits, then 10-30 letters/digits. */
+const IBAN_RE = /^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/;
+
+/**
+ * Add a recipient. Claude can do this only with Recipients set to "Add"; the user can always.
+ * New recipients always ask before Claude pays them, until the user turns on auto-pay.
+ */
+export function addRecipient({ name, iban, currency, note }, by) {
+  const clean = normIban(iban);
+  if (!String(name || '').trim()) throw new ActionError(400, 'Name is required.');
+  if (!IBAN_RE.test(clean)) throw new ActionError(400, 'That IBAN doesn\'t look right.');
+  if (!RATES_PER_EUR[currency]) throw new ActionError(400, `Currency must be one of ${CURRENCIES.join(', ')}.`);
+  const dupe = Object.values(state.recipients).find((r) => normIban(r.iban) === clean);
+  if (dupe) throw new ActionError(409, `${dupe.name} already has this IBAN.`);
+  let id = String(name).toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '').slice(0, 20) || 'recipient';
+  for (let n = 2; state.recipients[id]; n++) id = id.replace(/\d*$/, String(n));
+  const pretty = clean.replace(/(.{4})/g, '$1 ').trim();
+  const r = { id, name: String(name).trim().slice(0, 60), currency, iban: pretty, note: String(note || '').slice(0, 60), uses: 0, addedBy: by };
+  state.recipients[id] = r;
+  state.pass.autoPay[id] = false;
+  addActivity({
+    kind: 'recipient',
+    decision: by === 'claude' ? 'needs_approval' : 'allow',
+    rule: by === 'claude' ? 'recipients.added_by_claude' : 'recipients.added',
+    text: `${by === 'claude' ? 'Claude' : 'You'} added ${r.name} (${maskIban(r.iban)}) as a recipient. Claude always asks you before paying them.`,
+  });
+  return r;
+}
+
 // ---------------------------------------------------------------------------
 // The user's side (web app only, never reachable from an MCP tool)
 // ---------------------------------------------------------------------------
@@ -164,9 +239,44 @@ export function declineDraft(id) {
   addActivity({ kind: 'declined', draftId: d.id, decision: 'declined', rule: d.rule, text: `You declined ${fmt(d.amount, d.currency)} to ${d.recipientName}. Claude cannot send it.` });
 }
 
+/**
+ * Pay the selected payments of a batch with one tap; the rest are declined.
+ * Checks the balances first so it either pays all selected or none.
+ */
+export function approveBatch(id, draftIds) {
+  const b = state.batches[id];
+  if (!b) throw new ActionError(404, 'not found');
+  if (b.status !== 'awaiting_user') throw new ActionError(409, `Batch is ${b.status}`);
+  if (state.pass.revoked) throw new ActionError(409, "Claude's access is revoked. Restore it first.");
+  const waiting = b.draftIds.map((d) => state.drafts[d]).filter((d) => d.status === 'awaiting_user');
+  const chosen = new Set(Array.isArray(draftIds) ? draftIds : waiting.map((d) => d.id));
+  const pay = waiting.filter((d) => chosen.has(d.id));
+  if (!pay.length) throw new ActionError(400, 'Choose at least one payment.');
+  const need = {};
+  for (const d of pay) need[d.currency] = (need[d.currency] || 0) + d.amount;
+  for (const [c, a] of Object.entries(need)) {
+    if ((state.balances[c] ?? 0) < a) throw new ActionError(409, `Not enough ${c} balance for these payments (${fmt(state.balances[c] ?? 0, c)} available).`);
+  }
+  for (const d of waiting) {
+    if (chosen.has(d.id)) send(d, true);
+    else d.status = 'declined';
+  }
+  b.status = 'paid';
+  b.paidAt = new Date().toISOString();
+}
+
+export function declineBatch(id) {
+  const b = state.batches[id];
+  if (!b) throw new ActionError(404, 'not found');
+  if (b.status !== 'awaiting_user') throw new ActionError(409, `Batch is ${b.status}`);
+  for (const d of b.draftIds.map((x) => state.drafts[x])) if (d.status === 'awaiting_user') d.status = 'declined';
+  b.status = 'declined';
+  addActivity({ kind: 'declined', batchId: id, decision: 'declined', rule: 'batch.one_tap', text: `You declined the batch "${b.title}". Claude cannot send these payments.` });
+}
+
 const LEVEL_NAMES = { none: 'None', view: 'View', draft: 'Draft', act: 'Act' };
 
-const EXPIRY_NAMES = { '1h': 'for 1 hour', '1d': 'for 1 day', '30d': 'for 30 days', never: 'until you revoke it' };
+const EXPIRY_NAMES = { '1h': 'for 1 hour', '1d': 'for 1 day', '1w': 'for 1 week', '30d': 'for 30 days' };
 
 /**
  * Save the consent screen. Every field is optional; missing ones keep their current value.
@@ -178,14 +288,10 @@ export function updatePass(body) {
   const bad = (msg) => { throw new ActionError(400, msg); };
 
   const next = { ...p.permissions };
-  for (const key of ['balances', 'recipients', 'rates']) {
+  for (const [key, levels] of Object.entries(PERMISSION_LEVELS)) {
     if (permissions[key] === undefined) continue;
-    if (!READ_LEVELS.includes(permissions[key])) bad(`${key} must be one of ${READ_LEVELS.join(', ')}`);
+    if (!levels.includes(permissions[key])) bad(`${key} must be one of ${levels.join(', ')}`);
     next[key] = permissions[key];
-  }
-  if (permissions.transfers !== undefined) {
-    if (!TRANSFER_LEVELS.includes(permissions.transfers)) bad(`transfers must be one of ${TRANSFER_LEVELS.join(', ')}`);
-    next.transfers = permissions.transfers;
   }
 
   const limit = (v, name) => {
@@ -222,7 +328,7 @@ export function updatePass(body) {
   if (expiry !== undefined) {
     if (!(expiry in EXPIRY_MS)) bad(`expiry must be one of ${Object.keys(EXPIRY_MS).join(', ')}`);
     exp = expiry;
-    expiresAt = EXPIRY_MS[expiry] ? new Date(Date.now() + EXPIRY_MS[expiry]).toISOString() : null;
+    expiresAt = new Date(Date.now() + EXPIRY_MS[expiry]).toISOString();
   }
 
   Object.assign(p, {
@@ -245,8 +351,8 @@ export function updatePass(body) {
 }
 
 const READ_ONLY_PASS = {
-  permissions: { balances: 'view', recipients: 'view', rates: 'view', transfers: 'view' },
-  expiry: 'never',
+  permissions: { balances: 'view', recipients: 'view', rates: 'view', invoices: 'view', transfers: 'view', batches: 'off' },
+  expiry: '30d',
 };
 
 /**
@@ -278,7 +384,9 @@ export function revokeAccess() {
 }
 
 export function restoreAccess() {
-  Object.assign(state.pass, { revoked: false, expiry: 'never', expiresAt: null }); // also renews an expired pass
+  // Also renews an expired pass, for the same length of time as before.
+  const p = state.pass;
+  Object.assign(p, { revoked: false, expiresAt: new Date(Date.now() + EXPIRY_MS[p.expiry]).toISOString() });
   addActivity({ kind: 'restored', decision: 'allow', rule: 'pass.restored', text: "You restored Claude's access under your Agent Pass." });
 }
 

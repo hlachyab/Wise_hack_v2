@@ -316,6 +316,9 @@
     if (s.kind === 'payment') return renderPayment(s);
     if (s.kind === 'approvals') return renderApprovals(s);
     if (s.kind === 'denied') return renderDenied(s);
+    if (s.kind === 'invoices') return renderInvoices(s);
+    if (s.kind === 'batch') return renderBatch(s);
+    if (s.kind === 'recipient_added') return renderRecipientAdded(s);
   }
 
   // A read Claude isn't allowed to do (access revoked, or the permission is None).
@@ -423,6 +426,46 @@
       <div class="label indent" style="margin-bottom:0">You send</div>
       <div class="indent" style="font-weight:600">${num(s.amount, s.fromCurrency)} ${esc(s.fromCurrency)}</div>
       <div class="bullets">${bullet('pos', `<strong>Mid-market rate</strong> 1 ${esc(s.fromCurrency)} = ${esc(s.midMarketRate)} ${esc(s.toCurrency)} (mock)`)}</div>${foot}`;
+  }
+
+  // check_invoices: unpaid invoices from the (mock) email inbox.
+  function renderInvoices(s) {
+    const rows = s.invoices.map((i) => `<div class="row" style="margin-top:12px">${avatar(i.vendor, i.iban)}
+        <div class="meta"><b>${esc(i.vendor)} · ${fmt(i.amount, i.currency)}</b>
+        <small>${esc(i.subject)} · due ${esc(i.due)}${i.savedRecipient ? '' : ' · not a saved recipient'}</small></div></div>`).join('');
+    root.innerHTML = header('grey', 'Email') + `<h3 class="title-sub">${s.invoices.length ? `${s.invoices.length} unpaid invoice${s.invoices.length === 1 ? '' : 's'}` : 'No unpaid invoices'}</h3>` +
+      rows + `<div class="bullets">${bullet('pos', '<strong>Read-only.</strong> Paying them is checked against your Agent Pass.')}</div>${foot}`;
+  }
+
+  // prepare_batch: several payments waiting for one tap.
+  function renderBatch(s) {
+    const waiting = s.items.filter((d) => d.status === 'awaiting_user');
+    const totals = {};
+    waiting.forEach((d) => { totals[d.currency] = (totals[d.currency] || 0) + d.amount; });
+    const total = Object.entries(totals).map(([c, a]) => fmt(Math.round(a * 100) / 100, c)).join(' + ') || '–';
+    const rows = s.items.map((d) => `<div class="row" style="margin-top:12px;${d.status === 'blocked' ? 'opacity:.55' : ''}">${avatar(d.recipient, d.country)}
+        <div class="meta"><b>${esc(d.recipient)} · ${fmt(d.amount, d.currency)}</b><small>${d.status === 'blocked' ? 'Blocked: ' : ''}${esc(d.ibanMasked || 'New recipient')} · ${esc(d.reason)}</small></div></div>`).join('');
+    const warn = s.items.some((d) => (d.warnings || []).length || /^hard_stop/.test(d.rule));
+    root.innerHTML = header(waiting.length ? 'yellow' : 'red', 'Batch') + `
+      <div class="eyebrow">Claude prepared ${s.items.length} payments</div>
+      <div class="hero"><div><div class="amount" style="font-size:30px">${esc(total)}</div><div class="sub-eur">${esc(s.title)}</div></div>
+        <span class="status ${waiting.length ? 'wait' : 'no'}">${waiting.length ? `${waiting.length} waiting for you` : 'Blocked'}</span></div>
+      ${rows}
+      <div class="bullets">
+        ${bullet('pos', '<strong>One tap pays them all</strong>, after your fingerprint or Smart-ID in the Wise app.')}
+        ${warn ? bullet('warn', 'Some payments have new or changed bank details. They start unticked.') : ''}
+        ${bullet('pos', "<strong>Claude can't confirm this batch.</strong> Only you can.")}
+      </div>
+      ${waiting.length ? '<button class="btn" data-act="open">Review in Wise app</button>' : ''}${foot}`;
+  }
+
+  // add_recipient
+  function renderRecipientAdded(s) {
+    const r = s.recipient;
+    root.innerHTML = header('grey', 'Recipients') + `<h3 class="title-sub">New recipient added</h3>
+      <div class="row">${avatar(r.name, r.country)}<div class="meta"><b>${esc(r.name)}</b><small>${r.note ? esc(r.note) + ' · ' : ''}${esc(r.currency)} · ${esc(r.iban)}</small></div></div>
+      <div class="bullets">${bullet('warn', '<strong>Claude always asks you</strong> before paying a new recipient.')}
+        ${bullet('pos', 'You can remove them or turn on auto-pay in the Wise app.')}</div>${foot}`;
   }
 
   function renderRecipients(s) {

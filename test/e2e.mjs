@@ -41,7 +41,7 @@ const check = (label, cond) => {
 // --- Setup ---
 const tools = (await client.listTools()).tools;
 const names = tools.map((t) => t.name).sort().join(',');
-check('7 tools', names === 'confirm_payment,get_balances,get_pending_approvals,get_quote,list_recipients,payment_status,prepare_payment');
+check('10 tools', names === 'add_recipient,check_invoices,confirm_payment,get_balances,get_pending_approvals,get_quote,list_recipients,payment_status,prepare_batch,prepare_payment');
 check('every tool shows the card', tools.every((t) => t._meta?.ui?.resourceUri === 'ui://wise/card.html'));
 const card = await client.readResource({ uri: 'ui://wise/card.html' });
 check('card resource is an MCP App', card.contents[0].mimeType === 'text/html;profile=mcp-app' && !card.contents[0].text.includes('__ASSET:'));
@@ -153,7 +153,42 @@ fs.writeFileSync(STATE_FILE, JSON.stringify(raw));
 p = await call('prepare_payment', { recipientId: 'elisa', amount: 5, currency: 'EUR' });
 check('expired -> blocked (pass.expired), reads refused', p.json.rule === 'pass.expired' && (await call('get_balances')).isError && (await api('/api/state')).pass.expired);
 await api('/api/restore', 'POST');
-check('renew clears the expiry', (await api('/api/state')).pass.expiresAt === null);
+check('renew gives a fresh hour', Date.parse((await api('/api/state')).pass.expiresAt) > Date.now() + 3500e3);
+check('expiry longer than 30 days is refused', (await setPass({ expiry: 'never' })).status === 400);
+await setPass({ expiry: '1w' });
+check('expiry 1 week', Math.abs(Date.parse((await api('/api/state')).pass.expiresAt) - Date.now() - 7 * 86400e3) < 60e3);
+
+// --- Invoices, adding recipients, batches ---
+await setPass({ permissions: { invoices: 'none' } });
+check('invoices None -> refused', (await call('check_invoices')).isError);
+await setPass({ permissions: { invoices: 'view' } });
+const inv = await call('check_invoices');
+check('check_invoices lists the 4 unpaid invoices', !inv.isError && inv.json.invoices.length === 4);
+check('add_recipient refused without "Add"', (await call('add_recipient', { name: 'Nordic Cloud OÜ', iban: 'EE76 7700 7710 0123 4567', currency: 'EUR' })).isError);
+await setPass({ permissions: { recipients: 'add' } });
+const added = await call('add_recipient', { name: 'Nordic Cloud OÜ', iban: 'EE76 7700 7710 0123 4567', currency: 'EUR', note: 'Cloud storage' });
+check('Claude adds a recipient', !added.isError && added.card?.recipient?.name === 'Nordic Cloud OÜ');
+check('duplicate IBAN refused', (await call('add_recipient', { name: 'Again', iban: 'EE76 7700 7710 0123 4567', currency: 'EUR' })).isError);
+const newId = added.card.recipient.id;
+check('batch refused while batches are off', (await call('prepare_batch', { payments: [{ recipientId: 'elisa', amount: 5, currency: 'EUR' }] })).isError);
+await setPass({ permissions: { batches: 'on' } });
+const byId = Object.fromEntries(inv.json.invoices.map((i) => [i.invoiceId, i]));
+const bt = await call('prepare_batch', { title: 'November bills', payments: [
+  { recipientId: 'tallinnpower', amount: 64.2, currency: 'EUR', iban: byId.inv_power.iban, invoiceId: 'inv_power' },
+  { recipientId: newId, amount: 49, currency: 'EUR', iban: byId.inv_cloud.iban, invoiceId: 'inv_cloud' },
+  { recipientId: 'elisa', amount: 10, currency: 'USD' },
+] });
+const items = bt.card.items;
+check('batch: allowed one waits for one tap', items[0].status === 'awaiting_user' && items[0].rule === 'batch.one_tap');
+check('batch: new recipient asks', items[1].status === 'awaiting_user' && items[1].rule === 'pass.recipient_ask');
+check('batch: USD blocked and left out', items[2].status === 'blocked');
+check('confirm_payment cannot send a batch item', (await call('confirm_payment', { draftId: items[0].draftId })).isError);
+const eurBefore = (await api('/api/state')).balances.EUR;
+s = await api(`/api/batches/${bt.card.batchId}/approve`, 'POST', { draftIds: [items[0].draftId, items[1].draftId] });
+check('pay all with one tap -> both paid, invoices marked paid',
+  s.balances.EUR === Math.round((eurBefore - 113.2) * 100) / 100 && s.inbox.filter((i) => i.status === 'paid').length === 2);
+check('paid invoices drop out of check_invoices', (await call('check_invoices')).json.invoices.length === 2);
+check('user can add a recipient in the app', (await fetch(`http://localhost:${PORT}/api/recipients`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Test Person', iban: 'DE89 3704 0044 0532 0130 00', currency: 'EUR' }) })).ok);
 
 // --- Revoke: the kill switch ---
 await api('/api/revoke', 'POST');

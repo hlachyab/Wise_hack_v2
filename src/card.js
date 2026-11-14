@@ -69,4 +69,6 @@ export const cardFor = (d) => ({
   amountEUR: d.amountEUR,
   note: d.note,
   sentByUser: !!d.sentByUser,
+  invoiceId: d.invoiceId || null,
+  batchId: d.batchId || null,
 });

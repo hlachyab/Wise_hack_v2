@@ -7,7 +7,7 @@ import path from 'node:path';
 import { ROOT } from './paths.js';
 import { isExpired, load, save, sentTodayCount, state } from './state.js';
 import { ibanCountry, maskIban } from './money.js';
-import { ActionError, approveDraft, connectClaude, declineDraft, resetDemo, restoreAccess, revokeAccess, updatePass } from './payments.js';
+import { ActionError, addRecipient, approveBatch, approveDraft, connectClaude, declineBatch, declineDraft, resetDemo, restoreAccess, revokeAccess, updatePass } from './payments.js';
 import { log } from './log.js';
 
 const HOST = '127.0.0.1'; // local only
@@ -22,6 +22,8 @@ function publicState() {
     pass: { ...state.pass, expired: isExpired(), sentTodayCount: sentTodayCount() },
     drafts: Object.values(state.drafts).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     activity: state.activity,
+    batches: Object.values(state.batches).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    inbox: state.inbox.map(({ iban, ...i }) => ({ ...i, iban: maskIban(iban) })),
   };
 }
 
@@ -49,6 +51,9 @@ export function createWebApp() {
   });
   app.post('/api/drafts/:id/approve', action((req) => approveDraft(req.params.id)));
   app.post('/api/drafts/:id/decline', action((req) => declineDraft(req.params.id)));
+  app.post('/api/batches/:id/approve', action((req) => approveBatch(req.params.id, req.body?.draftIds)));
+  app.post('/api/batches/:id/decline', action((req) => declineBatch(req.params.id)));
+  app.post('/api/recipients', action((req) => addRecipient(req.body || {}, 'you')));
   app.post('/api/pass', action((req) => updatePass(req.body || {})));
   app.post('/api/connect', action((req) => connectClaude(req.body || {})));
   app.post('/api/revoke', action(revokeAccess));
