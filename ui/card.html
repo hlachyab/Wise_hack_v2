@@ -137,6 +137,12 @@
   .indent { margin-left: 40px; }
 
   .skeleton { color: var(--content-secondary); display: flex; align-items: center; gap: 8px; }
+  /* Claude + Wise icons on the connect card */
+  .pair { display: flex; justify-content: center; margin: 4px 0 16px; }
+  .pair > img, .pair > span { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; }
+  .pair > img { position: relative; z-index: 1; margin-right: -10px; transform: scale(1); }
+  .pair > span { background: #9FE870; display: grid; place-items: center; }
+  .pair > span img { width: 26px; height: 26px; }
 
   /* Fallbacks if the host sandbox blocks embedded images */
   .wordmark { font-weight: 700; font-size: 20px; line-height: 20px; letter-spacing: -0.04em; color: var(--forest); }
@@ -159,6 +165,8 @@
     neg: '__ASSET:bullet-negative.svg__',
     dot: '__ASSET:progress-step.svg__',
     minus: '__ASSET:minus-circle.svg__',
+    claude: '__ASSET:claude-icon.png__',
+    wiseFlag: '__ASSET:wise-flag.svg__',
   };
   // Flags from the Figma "Flags" section. Empty string = not exported yet → symbol fallback.
   const FLAGS = { EUR: '__ASSET:flag-eu.png__', GBP: '__ASSET:flag-gb.png__', JPY: '__ASSET:flag-jp.png__' };
@@ -325,7 +333,8 @@
   // A read Claude isn't allowed to do (access revoked, or the permission is None).
   function renderDenied(s) {
     if (s.connect) {
-      root.innerHTML = header('grey', 'Connect') + `<h3 class="title-sub">Connect your Wise account</h3>
+      root.innerHTML = header('grey', 'Connect') + `<div class="pair"><img data-fb="hide" src="${ASSETS.claude}" alt="" /><span><img data-fb="hide" src="${ASSETS.wiseFlag}" alt="" /></span></div>
+        <h3 class="title-sub" style="text-align:center">Connect your Wise account</h3>
         <div class="bullets">${bullet('warn', esc(s.error))}
           ${bullet('pos', '<strong>You choose what Claude can do</strong>: read-only, or a custom Agent Pass with your own limits.')}
           ${bullet('pos', '<strong>Claude never sees your password.</strong> You approve the connection in the Wise app.')}</div>

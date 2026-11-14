@@ -42,6 +42,9 @@ const tint = (s) => TINTS[[...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt
 /** Round icon with initials (and a country flag) for a recipient. */
 const personIcon = (r) => `<span class="person" style="background:${tint(r.name)}">${esc(initials(r.name))}${flagBadge(r.country)}</span>`;
 
+/** The Claude app icon, for anything Claude asked for or did. */
+const claudeIcon = (size = 20) => `<img class="claude-ico" src="/assets/claude-icon.png" width="${size}" height="${size}" alt="" />`;
+
 const avatar = (name, country) => `<span class="icon-btn"><span class="initials">${esc(initials(name))}</span>${flagBadge(country)}</span>`;
 
 // ---------------------------------------------------------------------------
@@ -143,7 +146,7 @@ function batchCard(b, isNew) {
   };
   return `
     <div class="approval batch ${isNew ? 'new' : ''}" data-batch-card="${esc(b.id)}">
-      <div class="approval-top"><span>Batch from Claude · ${waiting.length} payment${waiting.length === 1 ? '' : 's'}</span>${countdown(b.createdAt)}</div>
+      <div class="approval-top"><span class="with-icon">${claudeIcon()}Batch from Claude · ${waiting.length} payment${waiting.length === 1 ? '' : 's'}</span>${countdown(b.createdAt)}</div>
       <div class="approval-body">
         <div class="batch-title"><b>${esc(b.title)}</b><small>Check where each payment goes. Untick anything you don't want to pay.</small></div>
         <div class="brows">${items.map(row).join('')}</div>
@@ -178,7 +181,7 @@ function approvalCard(d, isNew) {
   const eur = d.amountEUR != null && d.currency !== 'EUR' ? `<span class="eur">≈ ${fmt(d.amountEUR, 'EUR')}</span>` : '';
   return `
     <div class="approval ${isNew ? 'new' : ''}">
-      <div class="approval-top"><span>${draftOnly ? 'Ready for you to send' : 'Claude is asking'}</span>${countdown(d.createdAt)}</div>
+      <div class="approval-top"><span class="with-icon">${claudeIcon()}${draftOnly ? 'Ready for you to send' : 'Claude is asking'}</span>${countdown(d.createdAt)}</div>
       <div class="approval-body">
         <div class="tx" style="padding:0 0 12px">
           ${avatar(d.recipientName, d.iban ? d.iban.slice(0, 2) : '')}
@@ -563,7 +566,7 @@ function notifyApproval(d) {
   el.className = 'toast';
   el.dataset.id = d.id;
   el.innerHTML = `
-    <div class="toast-top"><span>${draftOnly ? 'Ready for you to send' : 'Claude is asking'}</span><span class="toast-right">${countdown(d.createdAt)}<button class="toast-x" aria-label="Dismiss">✕</button></span></div>
+    <div class="toast-top"><span class="with-icon">${claudeIcon()}${draftOnly ? 'Ready for you to send' : 'Claude is asking'}</span><span class="toast-right">${countdown(d.createdAt)}<button class="toast-x" aria-label="Dismiss">✕</button></span></div>
     <div class="toast-body">
       ${avatar(d.recipientName, d.iban ? d.iban.slice(0, 2) : '')}
       <div class="meta"><b>${esc(d.recipientName)} · ${fmt(d.amount, d.currency)}</b><small>${esc(d.reason)}</small></div>
@@ -592,7 +595,7 @@ function notifyBatch(b) {
   el.className = 'toast';
   el.dataset.id = b.id;
   el.innerHTML = `
-    <div class="toast-top"><span>Batch from Claude</span><span class="toast-right">${countdown(b.createdAt)}<button class="toast-x" aria-label="Dismiss">✕</button></span></div>
+    <div class="toast-top"><span class="with-icon">${claudeIcon()}Batch from Claude</span><span class="toast-right">${countdown(b.createdAt)}<button class="toast-x" aria-label="Dismiss">✕</button></span></div>
     <div class="toast-body">
       <span class="icon-btn glyph">${waiting.length}</span>
       <div class="meta"><b>${esc(b.title)} · ${totalLine(waiting)}</b><small>${esc(list(waiting.map((d) => d.recipientName)))}. Check each one, then pay all with one tap.</small></div>
@@ -786,8 +789,9 @@ function renderActivity(activity, drafts) {
         const d = a.draftId ? draftsById[a.draftId] : null;
         const title = d ? d.recipientName : a.batchId ? 'Batch of payments' : 'Claude';
         const amount = d ? `<span class="amount ${look.muted ? 'muted' : ''}">${num(d.amount, d.currency)} ${esc(d.currency)}</span>` : '';
+        const byClaude = title === 'Claude' || (a.kind === 'prepared' && look.label === 'Prepared by Claude') || (a.kind === 'paid' && !a.byUser);
         return `<div class="tx" title="${esc(a.text)}">
-          <span class="icon-btn ${look.cls}">${look.icon}</span>
+          <span class="icon-btn ${look.cls}">${look.icon}${byClaude ? `<span class="by-claude">${claudeIcon(18)}</span>` : ''}</span>
           <div class="meta">
             <div class="head"><b>${esc(title)}</b>${amount}</div>
             <small>${esc(look.label)} · ${timeAgo(a.ts)}</small>
