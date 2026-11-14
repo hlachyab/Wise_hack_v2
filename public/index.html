@@ -13,6 +13,66 @@
   Layout follows the Wise web app home screen: left sidebar, header pills, "Total balance",
   pill actions, account cards with coloured tops, and a light-blue info banner.
 -->
+<!--
+  First-time connect screen, modelled on Wise's own MCP consent page: "Claude is requesting
+  access", accounts to connect, and Read-only / Custom permissions. Custom is the Agent Pass.
+  Shown instead of the app until Claude is connected.
+-->
+<section class="connect" id="connect-screen" hidden>
+  <header class="connect-bar"><img class="logo" src="/assets/wise-logo-forest.svg" alt="Wise" /></header>
+  <div class="connect-col">
+    <div class="pair" aria-hidden="true">
+      <span class="pair-claude"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4M8 3.8l8 16.4M16 3.8L8 20.2M3.8 8l16.4 8M3.8 16l16.4-8"/></svg></span>
+      <span class="pair-wise"><img src="/assets/wise-flag.svg" width="34" height="34" alt="" /></span>
+    </div>
+    <h1>Claude is requesting access</h1>
+    <p class="requested">Requested by Claude Desktop</p>
+    <p class="waiting" id="connect-waiting" hidden><span class="pulse-dot"></span>Claude is waiting for you to connect</p>
+
+    <h2>Accounts to connect</h2>
+    <label class="account-row">
+      <span class="account-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg></span>
+      <b>Alex Kask</b><small>Personal</small>
+      <input type="checkbox" class="square-check" id="connect-account" checked />
+    </label>
+
+    <hr />
+    <h2>Permissions</h2>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" class="tab on" data-tab="readonly" aria-selected="true">Read-only</button>
+      <button type="button" role="tab" class="tab" data-tab="custom" aria-selected="false">Custom <em class="new">NEW</em></button>
+    </div>
+
+    <div class="tab-panel" id="panel-readonly">
+      <ul class="checks">
+        <li>View your connected profiles and which tools and permissions are available.</li>
+        <li>View your balances and multi-currency accounts.</li>
+        <li>View available currencies for balances and bank details.</li>
+        <li>View and list your recipients.</li>
+        <li>View transfer delivery estimates and payment details.</li>
+        <li>View your account transactions and activity.</li>
+        <li>View exchange rates, fees and quotes.</li>
+      </ul>
+    </div>
+
+    <div class="tab-panel" id="panel-custom" hidden>
+      <p class="tab-intro">Let Claude do more than look. You set the rules; Wise checks every payment against them.</p>
+      <div class="presets" id="connect-presets">
+        <button type="button" class="preset" data-cpreset="draft"><b>Drafts for me</b><small>Claude prepares, you send</small></button>
+        <button type="button" class="preset" data-cpreset="bills"><b>Pay my bills</b><small>Small payments to Elisa, 30 days</small></button>
+      </div>
+      <div class="summary" id="connect-summary"></div>
+      <button type="button" class="btn btn-secondary fine-tune" id="connect-finetune">Fine-tune every permission</button>
+    </div>
+
+    <hr />
+    <div class="legal" id="connect-legal"></div>
+    <p class="consent-error" id="connect-error"></p>
+    <button type="button" class="btn btn-primary connect-btn" id="connect-btn">Connect</button>
+    <p class="legal small">Demo with mock money. Not affiliated with or endorsed by Wise.</p>
+  </div>
+</section>
+
 <div class="shell">
   <aside class="sidebar">
     <img class="logo" src="/assets/wise-logo-forest.svg" alt="Wise" />
@@ -57,7 +117,7 @@
       </div>
     </section>
 
-    <!-- Account cards: balances (green top), Agent Pass (yellow top), waiting for you (grey top). -->
+    <!-- Account cards: balances (green top) and Claude's Agent Pass (yellow top). -->
     <section class="acct-row" id="sec-balances">
       <div class="acct">
         <div class="acct-top green"><span>Your card <em>›</em></span><img src="/assets/wise-flag.svg" width="40" height="40" alt="" /></div>
@@ -68,13 +128,9 @@
           <span class="acct-chip"><svg viewBox="0 0 24 24"><path d="M3 9l9-5 9 5M5 10v8M10 10v8M14 10v8M19 10v8M3 20h18"/></svg>Account details</span>
         </div>
       </div>
-      <div class="acct" data-act="consent" role="button" tabindex="0">
-        <div class="acct-top yellow"><span>Agent Pass</span><svg class="acct-icon" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+      <div class="acct acct-wide">
+        <div class="acct-top yellow"><span>Claude · Agent Pass</span><svg class="acct-icon" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
         <div class="acct-body" id="pass-card"></div>
-      </div>
-      <div class="acct" onclick="location.hash='sec-approvals'">
-        <div class="acct-top grey"><span>Claude</span><svg class="acct-icon" viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z"/></svg></div>
-        <div class="acct-body" id="waiting-card"></div>
       </div>
     </section>
 

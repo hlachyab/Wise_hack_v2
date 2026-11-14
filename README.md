@@ -120,7 +120,13 @@ Logs: `~/Library/Logs/Claude/mcp-server-wise.log` (macOS), `%APPDATA%\Claude\log
 
 ## Demo script (3 minutes)
 
-Before you start, click **Reset demo** at the bottom of the web page. A fresh demo starts with **Transfers: View**, exactly like Wise's MCP today.
+Before you start, click **Reset demo** at the bottom of the web page. A fresh demo starts **disconnected**, so the first thing you see is the connect screen.
+
+### 0. Connect
+
+> How much money do I have?
+
+Claude's card says *"Connect your Wise account"* with a **Connect in Wise app** button. The web app shows **"Claude is requesting access"**, modelled on Wise's own MCP consent page: the account to connect, and **Read-only** or **Custom** permissions. Choose **Read-only** and click **Connect**, exactly like Wise's MCP today. (**Custom** is the Agent Pass: presets such as *Drafts for me* or *Pay my bills*, and *Fine-tune every permission*.)
 
 ### 1. Today: reading works
 
@@ -138,12 +144,20 @@ The card shows **Blocked**: *"Your Agent Pass lets Claude view transfers only, s
 
 In the web app click **Change permissions** (or open <http://localhost:4000/#consent>). Next to None and View, Transfers now has **Draft** and **Act**. Choose **Act**, keep **€200 per payment** and **€500 per month**, and click **Allow**.
 
+The same screen also lets you choose:
+- **Who Claude can pay on its own**: a switch for each saved recipient ("Always asks you first" otherwise).
+- **Currencies**: which currencies Claude may send.
+- **Payments a day**: how many payments Claude may send on its own each day.
+- **Access lasts**: 1 hour, 1 day, 30 days, or until revoked.
+
+One-tap presets (*Just looking*, *Drafts for me*, *Pay my bills*) fill everything in, and a plain-English summary shows what Claude **can do**, what it **asks you first**, and what it **can never** do.
+
 ### 4. The assistant acts
 
 > Pay Elisa €25 for the internet and send Jana €300.
 
 - **Elisa €25**: within the rules, so it's **sent**. The card shows *Sent*; the balance and the monthly bar move.
-- **Jana €300**: above the €200 limit, so an approval card appears in the web app: *"€300 is above your €200 limit per payment, so you need to approve it."*
+- **Jana €300**: above the €200 limit, so a **pop-up** appears in the corner of the web app (and a system notification if you turned them on with the bell): *"€300 is above your €200 limit per payment, so you need to approve it."* You can approve or decline right in the pop-up.
 
 ### 5. Approve, then stay in control
 
@@ -231,13 +245,17 @@ Checked in this order; the first match wins.
 
 | # | Condition | Result | Rule id |
 |---|-----------|--------|---------|
+| 0 | Claude isn't connected yet | **block** | `pass.not_connected` |
 | 1 | Access revoked | **block** | `pass.revoked` |
+| 1b | Access expired | **block** | `pass.expired` |
 | 2 | Transfers set to None or View | **block** (the wall) | `pass.transfers_read_only` |
 | 3 | Recipient isn't saved | **needs your approval** | `hard_stop.new_recipient` |
 | 4 | IBAN differs from the saved one | **needs your approval** | `hard_stop.changed_bank_details` |
 | 5 | Currency not allowed | **block** | `currency.not_allowed` |
 | 6 | Above the per-payment limit (€200) | **needs your approval** | `limit.per_payment` |
 | 7 | Would go over the monthly limit (€500) | **needs your approval** | `limit.monthly` |
+| 7b | Claude already sent its daily maximum (Act) | **needs your approval** | `limit.daily_count` |
+| 7c | Recipient set to "always ask" (Act) | **needs your approval** | `pass.recipient_ask` |
 | 8 | Within the rules, but Transfers is Draft | **needs your approval** (one tap to send) | `pass.draft` |
 | 9 | Otherwise | **allow** | `within_pass` |
 
@@ -250,11 +268,12 @@ All POST endpoints return the full page state (the `GET /api/state` shape) or `{
 | Method | Path | What it does |
 |---|---|---|
 | GET | `/api/state` | Balances, recipients (masked), pass, drafts, activity |
-| POST | `/api/pass` | Save the consent screen. Body: `{ "permissions": { "balances", "recipients", "rates", "transfers" }, "perPaymentLimitEUR", "monthlyLimitEUR" }` (every field optional) |
+| POST | `/api/connect` | First connect. Body: `{ "mode": "readonly" }`, or `{ "mode": "custom", …same fields as /api/pass }` |
+| POST | `/api/pass` | Save the consent screen. Body: `{ "permissions": { "balances", "recipients", "rates", "transfers" }, "perPaymentLimitEUR", "monthlyLimitEUR", "dailyCountLimit", "allowedCurrencies", "autoPay": { "<recipientId>": true/false }, "expiry": "1h" \| "1d" \| "30d" \| "never" }` (every field optional) |
 | POST | `/api/drafts/:id/approve` | Approve **and send** a draft that is `awaiting_user` |
 | POST | `/api/drafts/:id/decline` | Decline a draft that is `awaiting_user` |
 | POST | `/api/revoke` | Turn Claude's access off |
-| POST | `/api/restore` | Turn it back on |
+| POST | `/api/restore` | Turn it back on (also renews an expired pass) |
 | POST | `/api/reset` | Reset all demo data |
 
 The server binds to `127.0.0.1` only, so nothing outside your computer can reach it.

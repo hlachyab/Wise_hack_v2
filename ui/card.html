@@ -320,6 +320,14 @@
 
   // A read Claude isn't allowed to do (access revoked, or the permission is None).
   function renderDenied(s) {
+    if (s.connect) {
+      root.innerHTML = header('grey', 'Connect') + `<h3 class="title-sub">Connect your Wise account</h3>
+        <div class="bullets">${bullet('warn', esc(s.error))}
+          ${bullet('pos', '<strong>You choose what Claude can do</strong>: read-only, or a custom Agent Pass with your own limits.')}
+          ${bullet('pos', '<strong>Claude never sees your password.</strong> You approve the connection in the Wise app.')}</div>
+        <button class="btn" data-act="open">Connect in Wise app</button>${foot}`;
+      return;
+    }
     root.innerHTML = header('red') + `<h3 class="title-sub">No access</h3>
       <div class="bullets">${bullet('neg', esc(s.error))}${bullet('pos', '<strong>Only you</strong> decide what Claude can see, in the Wise app.')}</div>
       <button class="btn" data-act="open">Open Wise app</button>`;

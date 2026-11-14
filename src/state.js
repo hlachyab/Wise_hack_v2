@@ -32,6 +32,10 @@ export function createInitialState() {
     },
     // The Wise Agent Pass: what the user lets Claude do, set on the consent screen.
     pass: {
+      // A fresh demo starts disconnected: Claude's first tool call asks the user to connect,
+      // and the Wise app shows the connect (consent) screen.
+      connected: false,
+      connectRequestedAt: null, // when Claude last tried to use Wise before being connected
       revoked: false,
       // Like Wise's consent screen: None or View for reading, plus Draft and Act for transfers.
       // A fresh demo starts read-only, so "the wall" can be shown before switching to Act.

@@ -25,7 +25,8 @@ const client = new Client({ name: 'e2e', version: '1' });
 await client.connect(transport); // fails if the server writes anything else to stdout
 await new Promise((r) => setTimeout(r, 300)); // let the web server start
 
-const api = async (p, method = 'GET') => (await fetch(`http://localhost:${PORT}${p}`, { method })).json();
+const api = async (p, method = 'GET', body) =>
+  (await fetch(`http://localhost:${PORT}${p}`, { method, ...(body && { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }) })).json();
 const call = async (name, args = {}) => {
   const r = await client.callTool({ name, arguments: args });
   const t = r.content[0].text;
@@ -50,6 +51,16 @@ const act = () => setPass({ permissions: { transfers: 'act' } });
 
 await api('/api/reset', 'POST');
 let s = await api('/api/state');
+check('fresh demo: not connected', s.pass.connected === false && s.pass.connectRequestedAt === null);
+
+// --- Step 0: first connect ---
+let first = await call('get_balances');
+check('not connected -> reads refused with a "connect" card', first.isError && first.card?.connect === true);
+check('not connected -> prepare_payment refused', (await call('prepare_payment', { recipientId: 'elisa', amount: 1, currency: 'EUR' })).isError);
+s = await api('/api/state');
+check('the Wise app sees Claude asking to connect', !!s.pass.connectRequestedAt);
+s = await api('/api/connect', 'POST', { mode: 'readonly' });
+check('connect read-only -> connected, transfers View', s.pass.connected && s.pass.permissions.transfers === 'view' && s.pass.connectRequestedAt === null);
 check('fresh demo: transfers View, €200 / €500', s.pass.permissions.transfers === 'view' && s.pass.perPaymentLimitEUR === 200 && s.pass.monthlyLimitEUR === 500);
 
 // --- Step 1-2: "Today" works, then "the wall" ---

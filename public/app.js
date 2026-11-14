@@ -85,17 +85,6 @@ function approvalCard(d, isNew) {
     </div>`;
 }
 
-/** "Claude" account card: what is waiting for you right now. */
-function renderWaiting(drafts) {
-  const pending = drafts.filter((d) => d.status === 'awaiting_user');
-  const sent = drafts.filter((d) => d.status === 'paid').length;
-  $('waiting-card').innerHTML = `
-    <div class="acct-title"><b>Waiting for you</b><span class="chev">›</span></div>
-    <div class="acct-big">${pending.length}</div>
-    <div class="acct-sub">${pending.length ? pending.slice(0, 2).map((d) => `${esc(d.recipientName)} · ${fmt(d.amount, d.currency)}`).join('<br>') : 'Nothing to approve'}</div>
-    <div class="acct-lines"><div><span>Sent through Claude</span><b>${sent}</b></div></div>`;
-}
-
 const RATES_PER_EUR = { EUR: 1, GBP: 0.85, JPY: 162 }; // same mock rates as the server
 
 function renderBalances(balances) {
@@ -136,7 +125,7 @@ const timeLeft = (iso) => {
   return `in ${m} min`;
 };
 
-function renderPass(p, recipients) {
+function renderPass(p, recipients, drafts = []) {
   lastPass = p;
   lastRecipients = recipients;
   const t = p.permissions.transfers;
@@ -162,17 +151,26 @@ function renderPass(p, recipients) {
     ? `<button class="pill pill-light pill-lg" data-act="restore">${p.revoked ? 'Restore' : 'Renew'} access</button>`
     : `<button class="pill pill-light pill-lg" data-act="revoke">Revoke access</button>`;
 
-  // Yellow "Agent Pass" account card.
+  // "Claude · Agent Pass" account card: Claude's level and limits, plus what's waiting for you.
   const pct = Math.min(100, (p.spentThisMonthEUR / p.monthlyLimitEUR) * 100);
+  const pending = drafts.filter((d) => d.status === 'awaiting_user');
+  const sentByClaude = drafts.filter((d) => d.status === 'paid' && !d.sentByUser).length;
   $('pass-card').innerHTML = `
-    <div class="acct-title"><b>${off ? offWord : LEVELS[t].name}</b><span class="chev">›</span></div>
-    <div class="acct-sub">${off ? 'Claude has no access' : p.expiresAt ? `Ends ${timeLeft(p.expiresAt)}` : 'Transfers level for Claude'}</div>
-    <div class="acct-lines">
-      <div><span>Per payment</span><b>${fmt(p.perPaymentLimitEUR, 'EUR')}</b></div>
-      <div><span>Today</span><b>${p.sentTodayCount} / ${p.dailyCountLimit} payments</b></div>
-      <div><span>This month</span><b>${fmt(p.spentThisMonthEUR, 'EUR')} / ${fmt(p.monthlyLimitEUR, 'EUR')}</b></div>
-    </div>
-    <div class="bar"><div style="width:${pct}%"></div></div>`;
+    <div class="acct-title" data-act="consent" role="button" tabindex="0"><b>${off ? offWord : `Transfers: ${LEVELS[t].name}`}</b><span class="chev">›</span></div>
+    <div class="acct-sub">${off ? 'Claude has no access' : p.expiresAt ? `Access ends ${timeLeft(p.expiresAt)}` : 'Access until you revoke it'}</div>
+    <div class="pass-split">
+      <a class="waiting-box ${pending.length ? 'has' : ''}" href="#sec-approvals">
+        <span class="waiting-num">${pending.length}</span>
+        <span><b>${pending.length === 1 ? 'Payment waits' : 'Payments wait'} for you</b>
+        <small>${pending.length ? pending.slice(0, 2).map((d) => `${esc(d.recipientName)} · ${fmt(d.amount, d.currency)}`).join('<br>') : `${sentByClaude} sent by Claude so far`}</small></span>
+      </a>
+      <div class="acct-lines">
+        <div><span>Per payment</span><b>${fmt(p.perPaymentLimitEUR, 'EUR')}</b></div>
+        <div><span>Today</span><b>${p.sentTodayCount} / ${p.dailyCountLimit} payments</b></div>
+        <div><span>This month</span><b>${fmt(p.spentThisMonthEUR, 'EUR')} / ${fmt(p.monthlyLimitEUR, 'EUR')}</b></div>
+        <div class="bar"><div style="width:${pct}%"></div></div>
+      </div>
+    </div>`;
 
   // "Claude's access" panel
   const level = (v) => `<span class="level ${v === 'none' || off ? 'off' : ''}">${off ? 'None' : LEVELS[v].name}</span>`;
@@ -258,9 +256,12 @@ function fillConsent(p) {
       <input type="checkbox" class="switch" name="autopay" value="${esc(r.id)}" ${p.autoPay[r.id] !== false ? 'checked' : ''} /></label>`).join('');
 }
 
-function openConsent() {
+let consentMode = 'pass'; // 'connect' when fine-tuning from the connect screen (saves locally, not to the server)
+
+function openConsent(mode = 'pass', from = lastPass) {
   if (!lastPass) return;
-  fillConsent(lastPass);
+  consentMode = mode === 'connect' ? 'connect' : 'pass';
+  fillConsent(from);
   $('consent-error').textContent = '';
   syncConsent();
   consent.showModal();
@@ -303,7 +304,12 @@ function syncConsent() {
   const preset = matchingPreset(b);
   document.querySelectorAll('.preset').forEach((el) => el.classList.toggle('on', el.dataset.preset === preset));
 
-  // Plain-English summary
+  $('consent-summary').innerHTML = summaryHtml(b);
+}
+
+/** Plain-English "Claude can / asks you first / can never" for a pass body. */
+function summaryHtml(b) {
+  const t = b.permissions.transfers;
   const sees = ['balances', 'recipients', 'rates'].filter((k) => b.permissions[k] === 'view')
     .map((k) => ({ balances: 'balances', recipients: 'recipients', rates: 'exchange rates' }[k]));
   const names = Object.fromEntries(lastRecipients.map((r) => [r.id, r.name]));
@@ -322,8 +328,7 @@ function syncConsent() {
   if (t === 'draft' || t === 'act') asks.push('New recipients or changed bank details');
   cannot.push('Add recipients or change these settings');
   const line = (cls, title, items) => items.length ? `<div class="sum ${cls}"><b>${title}</b><ul>${items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul></div>` : '';
-  $('consent-summary').innerHTML =
-    line('can', 'Claude can', can) + line('ask', 'Claude asks you first', asks) + line('cannot', 'Claude can never', cannot) +
+  return line('can', 'Claude can', can) + line('ask', 'Claude asks you first', asks) + line('cannot', 'Claude can never', cannot) +
     `<div class="sum-foot">Access ${b.expiry === 'never' ? 'lasts until you revoke it' : `ends in ${EXPIRY[b.expiry]}`}.</div>`;
 }
 const list = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
@@ -345,6 +350,12 @@ form.addEventListener('submit', async (e) => {
   const body = readConsent();
   if (NEW_LEVELS.has(body.permissions.transfers) && !body.allowedCurrencies.length) {
     $('consent-error').textContent = 'Pick at least one currency, or set Transfers to View.';
+    return;
+  }
+  if (consentMode === 'connect') {
+    connectBody = body;
+    consent.close();
+    renderConnect(lastPass);
     return;
   }
   const res = await fetch('/api/pass', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -412,6 +423,68 @@ function pruneToasts(pending) {
   if (!pending.length) document.title = 'Wise · Agent Pass';
 }
 
+// ---------------------------------------------------------------------------
+// First-time connect screen
+// ---------------------------------------------------------------------------
+
+let connectTab = 'readonly';
+let connectBody = null; // the Custom choice; starts as the "Pay my bills" preset
+
+const presetBody = (name) => {
+  const pr = PRESETS[name];
+  return { ...readPassBody(lastPass), ...pr, permissions: { ...lastPass.permissions, ...pr.permissions }, autoPay: { ...lastPass.autoPay, ...(pr.autoPay || {}) } };
+};
+/** The pass fields that POST /api/pass and /api/connect take. */
+const readPassBody = (p) => ({
+  permissions: p.permissions, perPaymentLimitEUR: p.perPaymentLimitEUR, monthlyLimitEUR: p.monthlyLimitEUR,
+  dailyCountLimit: p.dailyCountLimit, allowedCurrencies: p.allowedCurrencies, autoPay: p.autoPay, expiry: p.expiry,
+});
+
+const LEGAL = {
+  readonly: `<p>By connecting, you let Claude read information from the Wise account you select, such as balances, transactions and recipients, within the permissions above.</p>
+    <p>This connection is read-only. Claude can't make payments or change your Wise account through it.</p>`,
+  custom: `<p>By connecting, you let Claude read and act on the Wise account you select, within the Agent Pass above.</p>
+    <p>Every payment Claude prepares is checked by Wise against your rules. Anything outside them waits for your approval in the Wise app. You can change or revoke access at any time.</p>`,
+};
+
+function renderConnect(p) {
+  const show = !p.connected;
+  $('connect-screen').hidden = !show;
+  document.body.classList.toggle('connecting', show);
+  if (!show) { connectBody = null; return; }
+  if (!connectBody) connectBody = presetBody('bills');
+  $('connect-waiting').hidden = !p.connectRequestedAt;
+  document.querySelectorAll('.tab').forEach((t) => {
+    const on = t.dataset.tab === connectTab;
+    t.classList.toggle('on', on);
+    t.setAttribute('aria-selected', on);
+  });
+  $('panel-readonly').hidden = connectTab !== 'readonly';
+  $('panel-custom').hidden = connectTab !== 'custom';
+  $('connect-summary').innerHTML = summaryHtml(connectBody);
+  const preset = matchingPreset(connectBody);
+  document.querySelectorAll('[data-cpreset]').forEach((el) => el.classList.toggle('on', el.dataset.cpreset === preset));
+  $('connect-legal').innerHTML = LEGAL[connectTab];
+  $('connect-btn').disabled = !$('connect-account').checked;
+}
+
+document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => { connectTab = t.dataset.tab; renderConnect(lastPass); }));
+$('connect-presets').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-cpreset]');
+  if (!b) return;
+  connectBody = presetBody(b.dataset.cpreset);
+  renderConnect(lastPass);
+});
+$('connect-finetune').addEventListener('click', () => openConsent('connect', { ...lastPass, ...connectBody }));
+$('connect-account').addEventListener('change', () => renderConnect(lastPass));
+$('connect-btn').addEventListener('click', async () => {
+  const body = connectTab === 'custom' ? { mode: 'custom', ...connectBody } : { mode: 'readonly' };
+  const res = await fetch('/api/connect', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  $('connect-error').textContent = res.ok ? '' : (await res.json().catch(() => ({}))).error || 'Something went wrong.';
+  lastKey = '';
+  poll();
+});
+
 // Icon and label for each kind of activity entry.
 const ICON_IMG = {
   arrow: '<img src="/assets/arrow-up.svg" width="24" height="24" alt="" />',
@@ -458,8 +531,8 @@ function render(s) {
   const first = !lastPass;
   renderApprovals(s.drafts);
   renderBalances(s.balances);
-  renderPass(s.pass, s.recipients);
-  renderWaiting(s.drafts);
+  renderPass(s.pass, s.recipients, s.drafts);
+  renderConnect(s.pass);
   renderActivity(s.activity, s.drafts);
   if (first && location.hash === '#consent') openConsent(); // direct link to the consent screen
 }

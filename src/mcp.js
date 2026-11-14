@@ -6,7 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { isExpired, state, tx } from './state.js';
 import { CURRENCIES, fmt, ibanCountry, maskIban } from './money.js';
-import { confirmPayment, getQuote, preparePayment } from './payments.js';
+import { confirmPayment, getQuote, noteConnectRequest, preparePayment } from './payments.js';
 import { TOOL_UI_META, cardFor, registerCard } from './card.js';
 
 const NO_APPROVE =
@@ -35,11 +35,22 @@ const text = (data, summary) => ({
 /** Same as text(), plus structuredContent for the in-chat card. `kind` picks the card layout. */
 const view = (kind, data, summary) => ({ ...text(data, summary), structuredContent: { kind, ...data } });
 
-/** A refused read (revoked, or permission set to None). The card shows `message`; Claude also gets `hint`. */
-const denied = ({ message, hint }) => ({ ...view('denied', { error: message }, `${message} ${hint}`), isError: true });
+/** A refused read (not connected, revoked, expired, or None). The card shows `message`; Claude also gets `hint`. */
+const denied = ({ message, hint, connect }) => ({ ...view('denied', { error: message, connect: !!connect }, `${message} ${hint}`), isError: true });
+
+const WISE_APP_URL = `http://localhost:${process.env.PORT || 4000}`;
+const NOT_CONNECTED = {
+  message: "Claude isn't connected to your Wise account yet.",
+  hint: `Tell the user to open the Wise app (${WISE_APP_URL}) and approve the connection there, then try again. Do not ask for passwords or bank details.`,
+  connect: true,
+};
 
 /** Why Claude can't read `area` right now, or null if it can. */
 function readBlocked(area) {
+  if (!state.pass.connected) {
+    noteConnectRequest(); // the Wise app shows "Claude is requesting access"
+    return NOT_CONNECTED;
+  }
   if (state.pass.revoked) {
     return { message: "Claude's access to your Wise account is revoked.", hint: 'Tell the user they can restore it in the Wise app.' };
   }
@@ -135,6 +146,10 @@ export function createMcpServer() {
       note: z.string().max(500).optional().describe('Payment reference / note'),
     },
   }, (args) => {
+    if (!state.pass.connected) {
+      noteConnectRequest();
+      return denied(NOT_CONNECTED);
+    }
     const d = preparePayment(args);
     return view('payment', cardFor(d), `Status: ${d.status}. ${d.reason}\nNext: ${NEXT_STEP[d.status]}`);
   });

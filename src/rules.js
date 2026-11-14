@@ -16,6 +16,12 @@ export const REVOKED = {
   reason: "You revoked Claude's access to your Wise account.",
 };
 
+export const NOT_CONNECTED = {
+  decision: 'block',
+  rule: 'pass.not_connected',
+  reason: "Claude isn't connected to your Wise account yet. You can connect it in the Wise app.",
+};
+
 export const EXPIRED = {
   decision: 'block',
   rule: 'pass.expired',
@@ -31,6 +37,9 @@ const READ_ONLY = {
 export function decide({ recipientId, amount, currency, iban }) {
   const p = state.pass;
   const r = state.recipients[recipientId];
+
+  // 0. Not connected yet
+  if (!p.connected) return NOT_CONNECTED;
 
   // 1. Access revoked
   if (p.revoked) return REVOKED;

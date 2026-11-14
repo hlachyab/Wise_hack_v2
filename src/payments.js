@@ -244,6 +244,34 @@ export function updatePass(body) {
   });
 }
 
+const READ_ONLY_PASS = {
+  permissions: { balances: 'view', recipients: 'view', rates: 'view', transfers: 'view' },
+  expiry: 'never',
+};
+
+/**
+ * The first-time connect screen. body.mode is "readonly" (Wise's read-only connection) or
+ * "custom" (the Agent Pass, with the same fields as updatePass).
+ */
+export function connectClaude(body = {}) {
+  const custom = body.mode === 'custom';
+  updatePass(custom ? body : READ_ONLY_PASS);
+  Object.assign(state.pass, { connected: true, connectRequestedAt: null, revoked: false });
+  state.activity.shift(); // replace the "updated" entry with a clearer one
+  const t = state.pass.permissions.transfers;
+  addActivity({
+    kind: 'restored',
+    decision: 'allow',
+    rule: 'pass.connected',
+    text: `You connected Claude to your Wise account (${custom ? `Agent Pass, Transfers: ${LEVEL_NAMES[t]}` : 'read-only'}).`,
+  });
+}
+
+/** Called by the MCP side when Claude tries to use Wise before it is connected. */
+export function noteConnectRequest() {
+  state.pass.connectRequestedAt = new Date().toISOString();
+}
+
 export function revokeAccess() {
   state.pass.revoked = true;
   addActivity({ kind: 'revoked', decision: 'block', rule: 'pass.revoked', text: "You revoked Claude's access. Claude can't see or do anything in your Wise account." });

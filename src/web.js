@@ -7,7 +7,7 @@ import path from 'node:path';
 import { ROOT } from './paths.js';
 import { isExpired, load, save, sentTodayCount, state } from './state.js';
 import { ibanCountry, maskIban } from './money.js';
-import { ActionError, approveDraft, declineDraft, resetDemo, restoreAccess, revokeAccess, updatePass } from './payments.js';
+import { ActionError, approveDraft, connectClaude, declineDraft, resetDemo, restoreAccess, revokeAccess, updatePass } from './payments.js';
 import { log } from './log.js';
 
 const HOST = '127.0.0.1'; // local only
@@ -50,6 +50,7 @@ export function createWebApp() {
   app.post('/api/drafts/:id/approve', action((req) => approveDraft(req.params.id)));
   app.post('/api/drafts/:id/decline', action((req) => declineDraft(req.params.id)));
   app.post('/api/pass', action((req) => updatePass(req.body || {})));
+  app.post('/api/connect', action((req) => connectClaude(req.body || {})));
   app.post('/api/revoke', action(revokeAccess));
   app.post('/api/restore', action(restoreAccess));
   app.post('/api/reset', action(resetDemo));
