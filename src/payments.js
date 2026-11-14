@@ -71,7 +71,8 @@ function evaluate({ recipientId, amount, currency, iban, note }, pending = { eur
   const id = String(recipientId).trim().toLowerCase();
   const saved = state.recipients[id];
   let result = decide({ recipientId: id, amount, currency, iban, pendingEUR: pending.eur, pendingCount: pending.count });
-  const fraud = result.decision === 'block' ? null : assessFraud({ recipientId: id, amount, currency, iban, note });
+  // A scam block keeps its fraud signals so the user can see why; other blocks need none.
+  const fraud = result.decision === 'block' && !result.rule.startsWith('fraud.') ? null : assessFraud({ recipientId: id, amount, currency, iban, note });
   if (fraud && fraud.level !== 'low' && result.decision === 'allow') {
     result = { decision: 'needs_approval', rule: 'fraud.review', reason: `Wise's fraud check flagged this request (${fraud.level} risk), so you need to check it yourself.` };
   }
@@ -102,6 +103,10 @@ export function preparePayment(payment, pending) {
     reason: result.reason,
     warnings: injectionWarnings(note),
     fraud,
+    // For a scam block: what Wise knows about the account, and the account saved under that name.
+    scam: result.rule === 'fraud.reported_account'
+      ? { why: reportedAccount(iban || saved?.iban), savedIbanMasked: saved && iban && normIban(iban) !== normIban(saved.iban) ? maskIban(saved.iban) : null }
+      : null,
     invoiceId: invoiceId && state.inbox.some((i) => i.id === invoiceId) ? invoiceId : null,
     batchId: null, // set by groupWaiting() when it joins a batch
   };
@@ -111,7 +116,9 @@ export function preparePayment(payment, pending) {
     draftId: draft.id,
     decision: result.decision,
     rule: result.rule,
-    text: `Claude prepared ${fmt(amount, currency)} to ${draft.recipientName}: ${PREPARED_TEXT[result.decision]}. ${result.reason}`,
+    text: draft.scam
+      ? `Wise stopped a scam: Claude was asked to pay ${fmt(amount, currency)} to ${draft.recipientName} (${draft.ibanMasked}). ${result.reason}`
+      : `Claude prepared ${fmt(amount, currency)} to ${draft.recipientName}: ${PREPARED_TEXT[result.decision]}. ${result.reason}`,
   });
   log(`prepare ${draft.id} ${amount} ${currency} -> ${draft.recipientName}: ${result.decision} (${result.rule})`);
   return draft;

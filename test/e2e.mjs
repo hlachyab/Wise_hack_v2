@@ -235,6 +235,9 @@ check('paid invoices drop out of check_invoices', (await call('check_invoices'))
 const scam = await pay([{ recipientId: 'tallinnpower', amount: 189, currency: 'EUR', iban: byId.inv_power.iban, invoiceId: 'inv_power' }]);
 check('scam account: blocked in the draft and at send (fraud.reported_account), even under the limit',
   scam.preview.json.items[0].outcome === 'blocked' && scam.json.status === 'blocked' && scam.json.rule === 'fraud.reported_account');
+const scamDraft = (await api('/api/state')).drafts.find((d) => d.id === scam.json.draftId);
+check('scam account: the Wise app gets why (reported, saved account, fraud signals)', scamDraft.scam?.why.includes('reported')
+  && scamDraft.scam.savedIbanMasked === '•••• 7731' && scamDraft.fraud.level === 'high' && scamDraft.fraud.signals.length >= 2);
 check('scam account: Claude cannot add it as a recipient', (await call('add_recipient', { name: 'Tallinn Power Billing', iban: 'LT47 3250 0794 5512 0937', currency: 'EUR' })).isError);
 check('user can add a recipient in the app', (await fetch(`http://localhost:${PORT}/api/recipients`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Test Person', iban: 'DE89 3704 0044 0532 0130 00', currency: 'EUR' }) })).ok);
 

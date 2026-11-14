@@ -11,7 +11,7 @@ import { looksLikeInjection, reportedAccount } from './rules.js';
 
 const VELOCITY_WINDOW_MS = 2 * 60 * 1000;
 const VELOCITY_MAX = 3; // more Claude requests than this in the window is unusual
-const URGENT = /\b(urgent|immediately|asap|today only|final notice|right now)\b/i;
+const URGENT = /\b(urgent|immediately|asap|today only|pay today|final notice|right now|avoid (?:disconnection|suspension|late fees?))\b/i;
 
 /**
  * Score one payment request. Signals and points:

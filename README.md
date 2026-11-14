@@ -345,7 +345,7 @@ The server binds to `127.0.0.1` only, so nothing outside your computer can reach
 npm test
 ```
 
-This starts its own copy of the server on port 4100 with a temporary state file (so it never touches your demo), connects to it over MCP like Claude does, and runs 77 checks: connecting, the two steps (draft, yes, send; single use; 10-minute limit), the whole demo script, the Draft level, every rule including the hard caps, expiry, invoices, new recipients, a reported scam account, trusted payments sent beside a batch, grouping of one-by-one requests, the fraud check, the 5-minute window, revoke and restore, and the out-of-date guard. It ends with `ALL PASSED` or the number of failures.
+This starts its own copy of the server on port 4100 with a temporary state file (so it never touches your demo), connects to it over MCP like Claude does, and runs 78 checks: connecting, the two steps (draft, yes, send; single use; 10-minute limit), the whole demo script, the Draft level, every rule including the hard caps, expiry, invoices, new recipients, a reported scam account, trusted payments sent beside a batch, grouping of one-by-one requests, the fraud check, the 5-minute window, revoke and restore, and the out-of-date guard. It ends with `ALL PASSED` or the number of failures.
 
 ## Reset
 

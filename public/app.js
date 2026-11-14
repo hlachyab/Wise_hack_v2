@@ -458,6 +458,101 @@ document.addEventListener('change', (e) => {
 });
 
 // ===========================================================================
+// 4b. Scams stopped by Wise
+// A payment to an account on Wise's list of reported scam accounts is blocked outright. This panel
+// shows the user what Wise stopped and why: the account compared with the one they saved, every
+// fraud signal, the risk score, and what happens now. "Got it" folds it away (remembered locally).
+// ===========================================================================
+
+const COUNTRY_NAMES = { EE: 'Estonia', LT: 'Lithuania', JP: 'Japan', GB: 'United Kingdom', BE: 'Belgium', IT: 'Italy', DE: 'Germany' };
+const country = (cc) => COUNTRY_NAMES[cc] || cc || 'Unknown';
+const SCAMS_KEY = 'wise.scamsSeen';
+const seenScams = (() => { try { return new Set(JSON.parse(localStorage.getItem(SCAMS_KEY) || '[]')); } catch { return new Set(); } })();
+const announcedScams = new Set();
+const SHIELD = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.5 4 5.5v6c0 4.9 3.4 8.9 8 10 4.6-1.1 8-5.1 8-10v-6l-8-3Z" fill="currentColor"/><path d="m8.5 8.5 7 7m0-7-7 7" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>';
+
+function renderScams(drafts, recipients) {
+  const day = Date.now() - 86400e3;
+  const scams = drafts.filter((d) => d.scam && Date.parse(d.createdAt) > day);
+  const open = scams.filter((d) => !seenScams.has(d.id));
+  const sec = $('sec-scams');
+  sec.hidden = !open.length;
+  sec.innerHTML = open.length
+    ? `<div class="section-head"><h2 class="title-section">Wise stopped a scam</h2><span class="eyebrow scam-count">${open.length} blocked</span></div>` + open.map((d) => scamCard(d, recipients)).join('')
+    : '';
+  if (!firstScamRender) scams.filter((d) => !announcedScams.has(d.id) && !seenScams.has(d.id)).forEach(notifyScam);
+  scams.forEach((d) => announcedScams.add(d.id));
+  firstScamRender = false;
+}
+let firstScamRender = true;
+
+function scamCard(d, recipients) {
+  const saved = recipients.find((r) => r.id === d.recipientId);
+  const f = d.fraud || { score: 100, level: 'high', signals: [] };
+  const signals = f.signals.filter((x) => !/reported to Wise/.test(x));
+  const reqCountry = countryOf(d);
+  return `<article class="scam" id="scam-${esc(d.id)}">
+    <div class="scam-top"><span class="with-icon">${SHIELD}Payment blocked by Wise</span><span class="scam-time">${timeAgo(d.createdAt)}</span></div>
+    <div class="scam-body">
+      <div class="scam-hero">
+        <div>
+          <div class="scam-amount">${fmt(d.amount, d.currency)}</div>
+          <small class="with-icon">${claudeIcon(18)}Claude was asked to pay “${esc(d.recipientName)}”${d.invoiceId || /invoice/i.test(d.note) ? ' from an email' : ''}</small>
+        </div>
+        <span class="scam-stamp">✕ Blocked<br><em>No money moved</em></span>
+      </div>
+
+      ${d.scam.savedIbanMasked ? `<div class="scam-compare">
+        <div class="sc-acct ok"><small>Your saved ${esc(saved ? saved.name : d.recipientName)}</small><b>${flagBadgeInline(saved?.country)}${esc(d.scam.savedIbanMasked)}</b><span>${esc(country(saved?.country))} · paid ${saved?.uses ?? 0}×</span></div>
+        <div class="vs">≠</div>
+        <div class="sc-acct bad"><small>Account in the request</small><b>${flagBadgeInline(reqCountry)}${esc(d.ibanMasked)}</b><span>${esc(country(reqCountry))} · reported</span></div>
+      </div>` : ''}
+
+      <h3 class="scam-h">Why Wise blocked it</h3>
+      <ul class="scam-why">
+        <li class="lead"><b>This account is on Wise's scam list.</b> It was ${esc(d.scam.why)}.</li>
+        ${signals.map((x) => `<li>${esc(x)}.</li>`).join('')}
+        ${d.warnings && d.warnings.length ? `<li>${esc(d.warnings[0])}</li>` : ''}
+      </ul>
+
+      <div class="risk">
+        <div class="risk-head"><span>Fraud risk score</span><b>${f.score}/100 · ${FRAUD_TEXT[f.level]}</b></div>
+        <div class="risk-bar"><i style="width:${Math.max(4, f.score)}%"></i></div>
+      </div>
+
+      <div class="scam-now">
+        <b>What happens now</b>
+        <ul>
+          <li>No money left your account. Wise never sends money to reported accounts, even if you approve.</li>
+          <li>Claude can't retry it or add this account as a recipient.</li>
+          ${saved ? `<li>Your real ${esc(saved.name)} details are unchanged.</li>` : ''}
+        </ul>
+      </div>
+      ${d.note ? `<div class="note">Payment text: “${esc(d.note.slice(0, 140))}${d.note.length > 140 ? '…' : ''}”</div>` : ''}
+      <div class="btn-row"><button class="btn btn-secondary" data-act="scamseen" data-id="${esc(d.id)}">Got it</button></div>
+    </div>
+  </article>`;
+}
+const flagBadgeInline = (cc) => (COUNTRY_FLAGS[cc] ? `<img class="flag-img" src="${COUNTRY_FLAGS[cc]}" width="20" height="20" alt="" />` : `<span class="sc-cc">${esc(cc || '?')}</span>`);
+
+/** A red pop-up when Wise stops a scam. */
+function notifyScam(d) {
+  const el = document.createElement('div');
+  el.className = 'toast error scam-toast';
+  el.setAttribute('role', 'alert');
+  el.innerHTML = `
+    <div class="toast-top"><span class="with-icon">${SHIELD}Wise stopped a scam</span><button class="toast-x" aria-label="Dismiss">✕</button></div>
+    <div class="toast-body"><span class="icon-btn no glyph">✕</span><div class="meta"><b>${fmt(d.amount, d.currency)} to “${esc(d.recipientName)}” ${esc(d.ibanMasked)}</b><small>This account was ${esc(d.scam.why)}. No money moved.</small></div></div>
+    <div class="btn-row"><a class="btn btn-danger" href="#scam-${esc(d.id)}">See why</a></div>`;
+  const close = () => el.remove();
+  el.querySelector('.toast-x').addEventListener('click', close);
+  el.querySelector('a').addEventListener('click', close);
+  toasts.prepend(el);
+  setTimeout(close, 15000);
+  if (notifyOk() && document.hidden) new Notification('Wise stopped a scam', { body: `${fmt(d.amount, d.currency)} to ${d.recipientName}: account reported for scams. No money moved.`, tag: d.id });
+}
+
+// ===========================================================================
 // 5. Notifications
 // ===========================================================================
 
@@ -515,7 +610,7 @@ function notifyBatch(b) {
     <div class="toast-top"><span class="with-icon">${claudeIcon()}Batch from Claude</span><span class="toast-right">${countdown(b.createdAt)}<button class="toast-x" aria-label="Dismiss">✕</button></span></div>
     <div class="toast-body">
       <span class="icon-btn glyph">${waiting.length}</span>
-      <div class="meta"><b>${esc(b.title)} · ${totalLine(waiting)}</b><small>${esc(list(waiting.map((d) => d.recipientName)))}. Check each one, then pay all with one tap.</small></div>
+      <div class="meta"><b>${esc(b.title)} · ${totalLine(waiting)}</b><small>${esc(list(waiting.map((d) => d.recipientName)).replace(/\.$/, ''))}. Check each one, then pay all with one tap.</small></div>
     </div>
     <div class="btn-row"><a class="btn btn-primary" href="#sec-approvals">Review batch</a></div>`;
   el.querySelector('.toast-x').addEventListener('click', () => el.remove());
@@ -897,6 +992,7 @@ function activityLook(a) {
     case 'recipient': return { icon: '+', cls: 'glyph', label: 'New recipient' };
     case 'expired': return { icon: '⏱', cls: 'glyph', label: 'Expired · nothing sent', muted: true };
     case 'prepared':
+      if (a.rule === 'fraud.reported_account') return { icon: '✕', cls: 'no glyph', label: 'Scam stopped by Wise · no money moved', scam: true };
       if (a.decision === 'needs_approval') return { icon: '!', cls: 'wait glyph', label: 'Waiting for you' };
       if (a.decision === 'block') return { icon: '✕', cls: 'no glyph', label: 'Blocked', muted: true };
       return { icon: ICON_IMG.plus, cls: '', label: 'Prepared by Claude' };
@@ -913,7 +1009,7 @@ function renderActivity(activity, drafts) {
         const title = d ? d.recipientName : a.batchId ? 'Batch of payments' : 'Claude';
         const amount = d ? `<span class="amount ${look.muted ? 'muted' : ''}">${num(d.amount, d.currency)} ${esc(d.currency)}</span>` : '';
         const byClaude = title === 'Claude' || (a.kind === 'prepared' && look.label === 'Prepared by Claude') || (a.kind === 'paid' && !a.byUser);
-        return `<div class="tx" title="${esc(a.text)}">
+        return `<div class="tx${look.scam ? ' tx-scam' : ''}" title="${esc(a.text)}"${look.scam && d ? ` data-act="scamshow" data-id="${esc(d.id)}" role="button" tabindex="0"` : ''}>
           <span class="icon-btn ${look.cls}">${look.icon}${byClaude ? `<span class="by-claude">${claudeIcon(18)}</span>` : ''}</span>
           <div class="meta">
             <div class="head"><b>${esc(title)}</b>${amount}</div>
@@ -931,6 +1027,7 @@ function renderActivity(activity, drafts) {
 /** Draw everything from one /api/state response. */
 function render(s) {
   const first = !lastPass;
+  renderScams(s.drafts, s.recipients);
   renderApprovals(s.drafts, s.batches);
   tickCountdowns();
   renderBalances(s.balances);
@@ -1017,6 +1114,18 @@ const ACTIONS = {
   revoke: () => post('/api/revoke'),
   restore: () => post('/api/restore'),
   consent: openConsent,
+  scamseen: (id) => {
+    seenScams.add(id);
+    try { localStorage.setItem(SCAMS_KEY, JSON.stringify([...seenScams])); } catch { /* private mode: fine */ }
+    refresh();
+  },
+  // Clicking a scam in the activity log opens its explanation again.
+  scamshow: (id) => {
+    seenScams.delete(id);
+    try { localStorage.setItem(SCAMS_KEY, JSON.stringify([...seenScams])); } catch { /* fine */ }
+    refresh();
+    setTimeout(() => $(`scam-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  },
 };
 
 document.addEventListener('click', (e) => {
