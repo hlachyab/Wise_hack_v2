@@ -87,7 +87,7 @@ pass: {
   monthlyLimitEUR: 500,
   allowedCurrencies: ['EUR', 'GBP', 'JPY'],
   autoPay: { elisa: true, jana: true, … },  // false = always ask before paying them
-  dailyCountLimit: 3,           // payments Claude may send on its own per day
+  dailyCountLimit: 10,          // hard cap: payments sent per day (Claude's and approved ones)
   expiry: '30d',                // '1h' | '1d' | '1w' | '30d'
   expiresAt: null,              // set when you connect or save
   spentThisMonthEUR: 0,
@@ -179,7 +179,7 @@ prepare_payment ─┬─► ready ───────── confirm_payment (
 
 **Re-check at send time.** The pass can change between prepare and confirm, so `confirmPayment()` runs `decide()` again before sending a `ready` draft. If you revoked access or set Transfers to View it becomes `blocked`; if it now needs approval it becomes `awaiting_user`.
 
-**Your approval skips the limits.** When you approve, it's your own decision, so the limits don't apply; the payment still counts towards *sent this month*. The one thing that can still fail is the balance: if there isn't enough money, the approve call returns an error and nothing moves.
+**Your approval skips the soft rules, not the hard caps.** When you approve, it's your own decision, so the per-payment limit and "always ask" don't apply. The monthly and daily limits still do: if sending would go over them, the approve call returns an error and nothing moves. The same happens if there isn't enough balance.
 
 **Batches** group up to 10 drafts. A batch is `awaiting_user` until you pay it (`paid`), decline it (`declined`) or let it expire (`expired`). Inside a batch, even payments the pass would allow wait for your one tap (rule `batch.one_tap`), so you see the whole list once. When you pay, you can untick any payment; unticked ones are declined. The balances are checked first, so it pays all the ticked ones or none.
 
@@ -196,10 +196,10 @@ prepare_payment ─┬─► ready ───────── confirm_payment (
 | 3 | Recipient isn't saved | needs approval | `hard_stop.new_recipient` |
 | 4 | IBAN differs from the saved one | needs approval | `hard_stop.changed_bank_details` |
 | 5 | Currency not allowed | block | `currency.not_allowed` |
-| 6 | Above the per-payment limit | needs approval | `limit.per_payment` |
-| 7 | Over the monthly limit | needs approval | `limit.monthly` |
-| 7b | Claude already sent its daily maximum (Act) | needs approval | `limit.daily_count` |
-| 7c | You set this recipient to "always ask" (Act) | needs approval | `pass.recipient_ask` |
+| 6 | Over the monthly limit | **block** (hard cap) | `limit.monthly` |
+| 6b | Today's payment count is used up | **block** (hard cap) | `limit.daily_count` |
+| 7 | Above the per-payment limit | needs approval | `limit.per_payment` |
+| 7b | You set this recipient to "always ask" (Act) | needs approval | `pass.recipient_ask` |
 | 8 | Transfers is Draft | needs approval | `pass.draft` |
 | 9 | Otherwise | allow | `within_pass` |
 
@@ -208,7 +208,9 @@ After `decide()`, `preparePayment()` applies two more steps that can only make a
 - **`fraud.review`**: the fraud check scored an *allowed* request medium or high risk (section 8).
 - **`batch.one_tap`**: an *allowed* payment inside a batch waits for the batch's one tap.
 
-The design principle: **within the rules the assistant acts; outside them it asks; only a few hard settings block.**
+The design principle: **within the rules the assistant acts; a bigger single payment asks you; hard settings and hard caps block.**
+
+**Hard caps.** `hardCapReason()` checks the monthly limit and the daily payment count. They are hard caps: `decide()` blocks anything over them, and `approveDraft()` / `approveBatch()` refuse to send over them too, so not even your approval gets past them (the web app shows a red *Not sent* pop-up with a *Change limits* button). Every payment sent through the pass counts, whether Claude sent it or you approved it. In a batch, each payment is checked together with the ones before it, so a batch can't get around the caps.
 
 Some details:
 
@@ -397,7 +399,7 @@ All of it lives in `createInitialState()` (`src/state.js`) and `src/money.js`. A
 | Balances | EUR 2,400 · GBP 300 · JPY 120,000 |
 | Saved recipients | Elisa (home internet), Jana Michiels (family), Tallinn Power Co. (electricity), Hikari Print Co. (supplier, JPY), Marko Tamm, Sofia Rossi, Studio Lumi Ltd (GBP). Each has `uses` (for *Frequently used*) and `avgEUR` (for the fraud check). |
 | Inbox | Tallinn Power €64.20 · Elisa €25 · Nordic Cloud OÜ €49 (not a saved recipient) · Hikari ¥18,500 (changed IBAN and hidden instructions) |
-| Agent Pass | Not connected · Transfers View · €200 per payment · €500 per month · 3 payments a day · EUR, GBP, JPY · 30 days |
+| Agent Pass | Not connected · Transfers View · €200 per payment · €500 per month · 10 payments a day · EUR, GBP, JPY · 30 days |
 | Rates | 1 EUR = 0.85 GBP = 162 JPY |
 | Fee | 0.43% + €0.30 (in the source currency), only when converting |
 

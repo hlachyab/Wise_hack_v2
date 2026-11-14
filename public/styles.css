@@ -478,7 +478,7 @@ label.rrow { cursor: pointer; }
    9. Prompt cards ("Try asking Claude")
    =========================================================================== */
 .prompts .hint { color: var(--content-tertiary); }
-.prompt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.prompt-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .prompt { text-align: left; border: 0; border-radius: 28px; padding: 24px; min-height: 170px; display: flex; flex-direction: column; justify-content: space-between; gap: 16px; font: inherit; cursor: pointer; transition: transform .15s; color: var(--forest); }
 .prompt:hover { transform: translateY(-2px); }
 .prompt b { font-size: 20px; line-height: 24px; font-weight: 700; letter-spacing: -0.01em; }
@@ -504,6 +504,7 @@ label.rrow { cursor: pointer; }
 .toast-body small { color: var(--content-secondary); font-size: 13px; line-height: 19px; }
 .toast .btn-row { padding: 0 8px 8px; margin-top: 14px; }
 .toast .btn { height: 44px; }
+.toast.error .toast-top { background: #F6D4CE; color: var(--negative); }
 .toast-right { display: flex; align-items: center; gap: 8px; }
 
 /* ===========================================================================

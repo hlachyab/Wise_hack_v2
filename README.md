@@ -161,7 +161,7 @@ One-tap presets (*Just looking*, *Drafts for me*, *Pay my bills*) fill everythin
 > Pay Elisa €25 for the internet and send Jana €300.
 
 - **Elisa €25**: within the rules, so it's **sent**. The card shows *Sent*; the balance and the monthly bar move.
-- **Jana €300**: above the €200 limit, so a **pop-up** appears in the corner of the web app (and a system notification if you turned them on with the bell): *"€300 is above your €200 limit per payment, so you need to approve it."* You can approve or decline right in the pop-up.
+- **Jana €300**: above the €200 per-payment limit, so a **pop-up** appears in the corner of the web app (and a system notification if you turned them on with the bell): *"€300 is above your €200 limit per payment, so you need to approve it."* You can approve or decline right in the pop-up.
 
 ### 5. Approve, then stay in control
 
@@ -268,14 +268,16 @@ Checked in this order; the first match wins.
 | 3 | Recipient isn't saved | **needs your approval** | `hard_stop.new_recipient` |
 | 4 | IBAN differs from the saved one | **needs your approval** | `hard_stop.changed_bank_details` |
 | 5 | Currency not allowed | **block** | `currency.not_allowed` |
-| 6 | Above the per-payment limit (€200) | **needs your approval** | `limit.per_payment` |
-| 7 | Would go over the monthly limit (€500) | **needs your approval** | `limit.monthly` |
-| 7b | Claude already sent its daily maximum (Act) | **needs your approval** | `limit.daily_count` |
-| 7c | Recipient set to "always ask" (Act) | **needs your approval** | `pass.recipient_ask` |
+| 6 | Would go over the monthly limit (€500) | **block** (hard cap) | `limit.monthly` |
+| 6b | Today's payment count is used up (10 a day) | **block** (hard cap) | `limit.daily_count` |
+| 7 | Above the per-payment limit (€200) | **needs your approval** | `limit.per_payment` |
+| 7b | Recipient set to "always ask" (Act) | **needs your approval** | `pass.recipient_ask` |
 | – | Wise's **fraud check** scores the request medium or high risk (see below) | **needs your approval** | `fraud.review` |
 | – | Part of a batch and otherwise allowed | **needs your approval** (one tap for the whole batch) | `batch.one_tap` |
 | 8 | Within the rules, but Transfers is Draft | **needs your approval** (one tap to send) | `pass.draft` |
 | 9 | Otherwise | **allow** | `within_pass` |
+
+**Hard caps.** The monthly and daily limits can't be passed at all: once reached, nothing more is sent, not even when you approve it, until you raise the limit. Every payment sent through the Agent Pass counts, whether Claude sent it or you approved it, and a batch counts all its payments together. Approving re-checks both caps. The per-payment limit is softer: a bigger single payment waits for your approval.
 
 "Needs your approval" becomes the draft status `awaiting_user`, "block" becomes `blocked`, and "allow" becomes `ready`. A note that looks like instructions to an AI adds a **prompt-injection warning** to the draft, but never changes the decision.
 
@@ -316,7 +318,7 @@ The server binds to `127.0.0.1` only, so nothing outside your computer can reach
 npm test
 ```
 
-This starts its own copy of the server on port 4100 with a temporary state file (so it never touches your demo), connects to it over MCP like Claude does, and runs 66 checks: connecting, the whole demo script, the Draft level, every rule, expiry, invoices, new recipients, batches, the fraud check, the 5-minute window, revoke and restore, and the out-of-date guard. It ends with `ALL PASSED` or the number of failures.
+This starts its own copy of the server on port 4100 with a temporary state file (so it never touches your demo), connects to it over MCP like Claude does, and runs 69 checks: connecting, the whole demo script, the Draft level, every rule including the hard caps, expiry, invoices, new recipients, batches, the fraud check, the 5-minute window, revoke and restore, and the out-of-date guard. It ends with `ALL PASSED` or the number of failures.
 
 ## Reset
 

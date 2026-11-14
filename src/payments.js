@@ -18,7 +18,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { state, addActivity, resetState, sentTodayCount, today, EXPIRY_MS, PERMISSION_LEVELS } from './state.js';
-import { decide, injectionWarnings, STATUS_FOR } from './rules.js';
+import { decide, hardCapReason, injectionWarnings, STATUS_FOR } from './rules.js';
 import { assessFraud } from './fraud.js';
 import { CURRENCIES, FEE_FIXED_EUR, FEE_PERCENT, RATES_PER_EUR, fmt, maskIban, normIban, round2, toEUR } from './money.js';
 import { log } from './log.js';
@@ -62,11 +62,12 @@ const PREPARED_TEXT = { allow: 'ready to send', needs_approval: 'waiting for you
  * Create a draft and check it against the Agent Pass. Never moves money.
  * batchId: part of a batch, so anything the pass allows waits for the user's one-tap "Pay all".
  * invoiceId: the inbox invoice this pays; it is marked paid when the draft is sent.
+ * pending: { eur, count } of earlier payments in the same batch, for the hard caps.
  */
-export function preparePayment({ recipientId, amount, currency, iban, note, invoiceId, batchId }) {
+export function preparePayment({ recipientId, amount, currency, iban, note, invoiceId, batchId }, pending = { eur: 0, count: 0 }) {
   const id = String(recipientId).trim().toLowerCase();
   const saved = state.recipients[id];
-  let result = decide({ recipientId: id, amount, currency, iban });
+  let result = decide({ recipientId: id, amount, currency, iban, pendingEUR: pending.eur, pendingCount: pending.count });
   // Extra layer: Wise's fraud check. A suspicious request never goes through automatically.
   const fraud = result.decision === 'block' ? null : assessFraud({ recipientId: id, amount, currency, iban, note });
   if (fraud && fraud.level !== 'low' && result.decision === 'allow') {
@@ -117,7 +118,7 @@ function send(d, byUser) {
   d.status = 'paid';
   d.paidAt = new Date().toISOString();
   d.sentByUser = byUser;
-  if (!byUser) state.pass.sentToday = { date: today(), count: sentTodayCount() + 1 };
+  state.pass.sentToday = { date: today(), count: sentTodayCount() + 1 }; // Claude's and approved ones both count
   const r = state.recipients[d.recipientId];
   if (r) r.uses = (r.uses || 0) + 1;
   const inv = d.invoiceId && state.inbox.find((i) => i.id === d.invoiceId);
@@ -183,7 +184,12 @@ export function prepareBatch({ title, payments }) {
     draftIds: [],
     status: 'awaiting_user',
   };
-  for (const p of payments.slice(0, MAX_BATCH)) batch.draftIds.push(preparePayment({ ...p, batchId: batch.id }).id);
+  const pending = { eur: 0, count: 0 }; // what the batch already holds, so the caps cover the whole batch
+  for (const p of payments.slice(0, MAX_BATCH)) {
+    const d = preparePayment({ ...p, batchId: batch.id }, pending);
+    batch.draftIds.push(d.id);
+    if (d.status === 'awaiting_user') { pending.eur += d.amountEUR || 0; pending.count += 1; }
+  }
   const drafts = batch.draftIds.map((id) => state.drafts[id]);
   const waiting = drafts.filter((d) => d.status === 'awaiting_user');
   if (!waiting.length) batch.status = 'blocked';
@@ -241,10 +247,15 @@ function awaitingDraft(id) {
   return d;
 }
 
-/** Approve = send. The user's own decision, so the pass limits don't apply. */
+/**
+ * Approve = send. The user's own decision, so the per-payment limit and "always ask" don't apply,
+ * but the monthly and daily limits are hard caps and still do.
+ */
 export function approveDraft(id) {
   const d = awaitingDraft(id);
   if (state.pass.revoked) throw new ActionError(409, "Claude's access is revoked. Restore it first.");
+  const cap = hardCapReason(d.amountEUR || 0, 1);
+  if (cap) throw new ActionError(409, cap);
   const error = send(d, true); // logs "Sent … You approved it in the Wise app."
   if (error) throw new ActionError(409, error);
 }
@@ -268,6 +279,8 @@ export function approveBatch(id, draftIds) {
   const chosen = new Set(Array.isArray(draftIds) ? draftIds : waiting.map((d) => d.id));
   const pay = waiting.filter((d) => chosen.has(d.id));
   if (!pay.length) throw new ActionError(400, 'Choose at least one payment.');
+  const cap = hardCapReason(round2(pay.reduce((t, d) => t + (d.amountEUR || 0), 0)), pay.length);
+  if (cap) throw new ActionError(409, cap);
   const need = {};
   for (const d of pay) need[d.currency] = (need[d.currency] || 0) + d.amount;
   for (const [c, a] of Object.entries(need)) {

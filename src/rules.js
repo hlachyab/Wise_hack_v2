@@ -1,8 +1,10 @@
 // The Agent Pass rules engine. Order matters; the first matching rule wins.
 // decide() returns { decision, rule, reason }, where decision is "allow" | "needs_approval" | "block".
 //
-// The idea: within the user's limits Claude can act on its own; anything outside them asks the
-// user; only a few hard settings (revoked, read-only, currency) block outright.
+// The idea: within the user's limits Claude can act on its own; a bigger single payment asks the
+// user; hard settings block outright. The monthly and daily limits are hard caps: once reached,
+// nothing more is sent, not even with the user's approval (see hardCapReason, also used when the
+// user approves).
 
 import { isExpired, sentTodayCount, state } from './state.js';
 import { fmt, maskIban, normIban, toEUR } from './money.js';
@@ -35,7 +37,28 @@ const READ_ONLY = {
   reason: "Your Agent Pass lets Claude view transfers only, so it can't prepare or send money. You can change Transfers to Draft or Act in the Wise app.",
 };
 
-export function decide({ recipientId, amount, currency, iban }) {
+/**
+ * Why sending `addEUR` more (in `addCount` payments) would break a hard cap, or null if it fits.
+ * Every payment sent through the Agent Pass counts, whether Claude sent it or the user approved it.
+ */
+export function hardCapReason(addEUR, addCount = 1) {
+  const p = state.pass;
+  if (p.spentThisMonthEUR + addEUR > p.monthlyLimitEUR + 0.001) {
+    const left = Math.max(0, p.monthlyLimitEUR - p.spentThisMonthEUR);
+    return `This would go over your ${fmt(p.monthlyLimitEUR, 'EUR')} monthly limit (${fmt(left, 'EUR')} left this month). The monthly limit is a hard cap, so it can't be sent, even with your approval. You can raise the limit in the Wise app.`;
+  }
+  const sent = sentTodayCount(p);
+  if (sent + addCount > p.dailyCountLimit) {
+    return `${sent} of your ${p.dailyCountLimit} payment${p.dailyCountLimit === 1 ? '' : 's'} a day ${sent === 1 ? 'is' : 'are'} already used${addCount > 1 ? `, so ${addCount} more won't fit` : ''}. The daily limit is a hard cap, so nothing more can be sent today, even with your approval. You can raise it in the Wise app.`;
+  }
+  return null;
+}
+
+/**
+ * The Agent Pass decision for one payment. pendingEUR / pendingCount are payments earlier in the
+ * same batch, so a batch can't get around the monthly or daily cap by splitting.
+ */
+export function decide({ recipientId, amount, currency, iban, pendingEUR = 0, pendingCount = 0 }) {
   const p = state.pass;
   const r = state.recipients[recipientId];
 
@@ -82,7 +105,14 @@ export function decide({ recipientId, amount, currency, iban }) {
   const eur = toEUR(amount, currency);
   const eurNote = currency === 'EUR' ? '' : ` (about ${fmt(eur, 'EUR')})`;
 
-  // 6. Per-payment limit
+  // 6. Monthly and daily limits: hard caps, checked before anything that could ask the user
+  const cap = hardCapReason(pendingEUR + eur, pendingCount + 1);
+  if (cap) {
+    const monthly = cap.includes('monthly');
+    return { decision: 'block', rule: monthly ? 'limit.monthly' : 'limit.daily_count', reason: cap };
+  }
+
+  // 7. Per-payment limit: a bigger payment asks the user
   if (eur > p.perPaymentLimitEUR) {
     return {
       decision: 'needs_approval',
@@ -91,26 +121,7 @@ export function decide({ recipientId, amount, currency, iban }) {
     };
   }
 
-  // 7. Monthly limit
-  if (p.spentThisMonthEUR + eur > p.monthlyLimitEUR) {
-    const left = Math.max(0, p.monthlyLimitEUR - p.spentThisMonthEUR);
-    return {
-      decision: 'needs_approval',
-      rule: 'limit.monthly',
-      reason: `This would go over your ${fmt(p.monthlyLimitEUR, 'EUR')} monthly limit (${fmt(left, 'EUR')} left this month), so you need to approve it.`,
-    };
-  }
-
-  // 7b. Daily payment count (only Claude's own sends count)
-  if (level === 'act' && sentTodayCount(p) >= p.dailyCountLimit) {
-    return {
-      decision: 'needs_approval',
-      rule: 'limit.daily_count',
-      reason: `Claude already sent ${p.dailyCountLimit} payment${p.dailyCountLimit === 1 ? '' : 's'} today, your daily maximum, so you need to approve this one.`,
-    };
-  }
-
-  // 7c. The user asked to approve every payment to this recipient
+  // 8. The user asked to approve every payment to this recipient
   if (level === 'act' && p.autoPay[recipientId] === false) {
     return {
       decision: 'needs_approval',
@@ -119,7 +130,7 @@ export function decide({ recipientId, amount, currency, iban }) {
     };
   }
 
-  // 8. Within the rules, but the pass is Draft: Claude prepares, the user sends
+  // 9. Within the rules, but the pass is Draft: Claude prepares, the user sends
   if (level === 'draft') {
     return {
       decision: 'needs_approval',
@@ -128,7 +139,7 @@ export function decide({ recipientId, amount, currency, iban }) {
     };
   }
 
-  // 9. Allow
+  // 10. Allow
   return {
     decision: 'allow',
     rule: 'within_pass',

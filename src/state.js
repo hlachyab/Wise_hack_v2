@@ -68,7 +68,7 @@ export function createInitialState() {
       allowedCurrencies: ['EUR', 'GBP', 'JPY'],
       // Per saved recipient: true = Claude may pay them on its own (within limits), false = always ask.
       autoPay: { elisa: true, jana: true, tallinnpower: true, hikari: true, marko: true, sofia: true, lumi: true },
-      dailyCountLimit: 3,       // payments Claude may send on its own per day; more need approval
+      dailyCountLimit: 10,      // hard cap: payments sent through the pass per day (Claude's and approved ones)
       expiry: '30d',            // one of EXPIRY_MS
       expiresAt: null,          // ISO time when access ends, or null
       spentThisMonthEUR: 0,

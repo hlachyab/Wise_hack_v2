@@ -207,7 +207,7 @@
       <div class="perm-limits" id="perm-limits">
         <label>Per payment, up to<span class="money-in"><span>€</span><input name="perPaymentLimitEUR" type="number" min="1" step="1" inputmode="numeric" /></span></label>
         <label>Per month, up to<span class="money-in"><span>€</span><input name="monthlyLimitEUR" type="number" min="1" step="1" inputmode="numeric" /></span></label>
-        <label class="act-only">Payments a day, up to<span class="money-in"><span>#</span><input name="dailyCountLimit" type="number" min="1" max="50" step="1" inputmode="numeric" /></span></label>
+        <label>Payments a day, up to<span class="money-in"><span>#</span><input name="dailyCountLimit" type="number" min="1" max="50" step="1" inputmode="numeric" /></span></label>
         <div class="field"><span class="field-label">Currencies</span><div class="chips" id="consent-currencies"></div></div>
         <div class="field act-only">
           <div class="field-head"><span class="field-label">Who Claude can pay on its own</span><button type="button" class="link-add" id="add-recipient-btn">＋ Add new</button></div>
@@ -221,7 +221,7 @@
           <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input type="search" id="recipient-search" placeholder="Search recipients" autocomplete="off" /></label>
           <div id="consent-recipients" class="rlist"></div>
         </div>
-        <p class="perm-note">New recipients and changed bank details always need your approval.</p>
+        <p class="perm-note">The monthly and daily limits are hard caps: once reached, nothing more is sent, not even with your approval. New recipients and changed bank details always need your approval.</p>
       </div>
     </div>
     <div class="perm"><div class="perm-head"><b>Batch payments</b><span class="seg" data-perm="batches"></span></div><p class="perm-help">Claude can send several payments as one request. You see where each one goes and pay them all with one tap.</p></div>

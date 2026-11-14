@@ -128,7 +128,7 @@ const PRESETS = {
   draft: { permissions: { balances: 'view', recipients: 'view', rates: 'view', invoices: 'view', transfers: 'draft', batches: 'off' }, expiry: '1w', perPaymentLimitEUR: 200, monthlyLimitEUR: 500 },
   bills: {
     permissions: { balances: 'view', recipients: 'add', rates: 'view', invoices: 'view', transfers: 'act', batches: 'on' }, expiry: '30d',
-    perPaymentLimitEUR: 200, monthlyLimitEUR: 500, dailyCountLimit: 3, allowedCurrencies: ['EUR'],
+    perPaymentLimitEUR: 200, monthlyLimitEUR: 500, dailyCountLimit: 10, allowedCurrencies: ['EUR'],
     autoPay: { elisa: true, tallinnpower: true, jana: false, hikari: false, marko: false, sofia: false, lumi: false },
   },
 };
@@ -522,10 +522,26 @@ function notifyBatch(b) {
   if (notifyOk() && document.hidden) new Notification('Claude sent a batch of payments', { body: `${b.title}: ${totalLine(waiting)}`, tag: b.id });
 }
 
-/** Remove pop-ups for drafts that are no longer waiting (approved, declined, or reset). */
+/** A red pop-up for something that couldn't be done (e.g. a hard limit was reached). Closes after 10s. */
+function showError(title, message) {
+  const el = document.createElement('div');
+  el.className = 'toast error';
+  el.setAttribute('role', 'alert');
+  el.innerHTML = `
+    <div class="toast-top"><span>${esc(title)}</span><button class="toast-x" aria-label="Dismiss">✕</button></div>
+    <div class="toast-body"><span class="icon-btn no glyph">!</span><div class="meta"><small>${esc(message)}</small></div></div>
+    <div class="btn-row"><button class="btn btn-secondary" data-act="consent">Change limits</button></div>`;
+  const close = () => el.remove();
+  el.querySelector('.toast-x').addEventListener('click', close);
+  el.querySelector('.btn').addEventListener('click', close);
+  toasts.prepend(el);
+  setTimeout(close, 10000);
+}
+
+/** Remove pop-ups for drafts that are no longer waiting (approved, declined, or reset). Error pop-ups stay. */
 function pruneToasts(pending) {
   const ids = new Set(pending.map((d) => d.id));
-  toasts.querySelectorAll('.toast').forEach((el) => { if (!ids.has(el.dataset.id)) el.remove(); });
+  toasts.querySelectorAll('.toast:not(.error)').forEach((el) => { if (!ids.has(el.dataset.id)) el.remove(); });
   if (!pending.length) document.title = 'Wise · Agent Pass';
 }
 
@@ -753,9 +769,12 @@ function summaryHtml(b) {
   if (t === 'act') {
     if (auto.length) can.push(`Pay ${list(auto)} up to ${fmt(b.perPaymentLimitEUR, 'EUR')} each, in ${ccy}`);
     if (ask.length) asks.push(`Any payment to ${list(ask)}`);
-    asks.push(`Over ${fmt(b.perPaymentLimitEUR, 'EUR')}, over ${fmt(b.monthlyLimitEUR, 'EUR')} a month, or more than ${b.dailyCountLimit} a day`);
+    asks.push(`Any payment over ${fmt(b.perPaymentLimitEUR, 'EUR')}`);
   }
-  if (t === 'draft' || t === 'act') asks.push('New recipients or changed bank details');
+  if (t === 'draft' || t === 'act') {
+    asks.push('New recipients or changed bank details');
+    cannot.push(`Send more than ${fmt(b.monthlyLimitEUR, 'EUR')} a month or ${b.dailyCountLimit} payment${b.dailyCountLimit === 1 ? '' : 's'} a day, even with your approval`);
+  }
   cannot.push(b.permissions.recipients === 'add' ? 'Change saved bank details or these settings' : 'Add recipients or change these settings');
   cannot.push('Approve a payment: that always takes your fingerprint, Wise app or SMS code');
   const line = (cls, title, items) => items.length ? `<div class="sum ${cls}"><b>${title}</b><ul>${items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul></div>` : '';
@@ -979,14 +998,18 @@ const ACTIONS = {
   approve: async (id) => {
     const d = lastDrafts.find((x) => x.id === id);
     if (!d || !(await verify(`Send ${fmt(d.amount, d.currency)} to ${d.recipientName}`, [d]))) return;
-    post(`/api/drafts/${encodeURIComponent(id)}/approve`);
+    const { ok, error } = await api(`/api/drafts/${encodeURIComponent(id)}/approve`);
+    if (!ok) showError('Not sent', error);
+    refresh();
   },
   decline: (id) => post(`/api/drafts/${encodeURIComponent(id)}/decline`),
   batchpay: async (id) => {
     const b = lastBatches.find((x) => x.id === id);
     const { chosen } = batchSelection(b);
     if (!chosen.length || !(await verify(`Pay ${chosen.length} payment${chosen.length === 1 ? '' : 's'}: ${totalLine(chosen)}`, chosen))) return;
-    post(`/api/batches/${encodeURIComponent(id)}/approve`, { draftIds: chosen.map((d) => d.id) });
+    const { ok, error } = await api(`/api/batches/${encodeURIComponent(id)}/approve`, { draftIds: chosen.map((d) => d.id) });
+    if (!ok) showError('Batch not paid', error);
+    refresh();
   },
   batchdecline: (id) => post(`/api/batches/${encodeURIComponent(id)}/decline`),
   revoke: () => post('/api/revoke'),

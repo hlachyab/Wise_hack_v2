@@ -89,10 +89,17 @@ check('Approve sends: Jana paid, EUR 2075, spent 325', s.drafts.find((d) => d.id
 c = await call('confirm_payment', { draftId: jana.json.draftId });
 check('confirm after user sent -> already sent, not an error', !c.isError && c.json.status === 'paid');
 
-// --- Monthly limit asks instead of blocking: €325 spent, €180 more crosses €500 ---
+// --- Monthly limit is a hard cap: €325 spent, €180 more crosses €500 ---
 p = await call('prepare_payment', { recipientId: 'elisa', amount: 180, currency: 'EUR' });
-check('over monthly -> awaiting_user (limit.monthly)', p.json.status === 'awaiting_user' && p.json.rule === 'limit.monthly');
+check('over monthly -> blocked (limit.monthly), a hard cap', p.json.status === 'blocked' && p.json.rule === 'limit.monthly');
+// Jana is set to "always ask", so €170 (€495 in total, fits) waits; then the user lowers the month.
+await setPass({ autoPay: { jana: false } });
+p = await call('prepare_payment', { recipientId: 'jana', amount: 170, currency: 'EUR' });
+await setPass({ monthlyLimitEUR: 400 });
+const refused = await fetch(`http://localhost:${PORT}/api/drafts/${p.json.draftId}/approve`, { method: 'POST' });
+check('approving past the monthly cap is refused, even by the user', refused.status === 409 && (await api('/api/state')).pass.spentThisMonthEUR === 325);
 await api(`/api/drafts/${p.json.draftId}/decline`, 'POST');
+await setPass({ monthlyLimitEUR: 500, autoPay: { jana: true } });
 
 // --- Draft level: Claude prepares, the user sends ---
 await setPass({ permissions: { transfers: 'draft' } });
@@ -131,7 +138,7 @@ check('rates None -> quote refused', (await call('get_quote', { amount: 100, fro
 await setPass({ permissions: { rates: 'view' } });
 
 // --- Finer controls: per-recipient, currencies, daily count, expiry ---
-await setPass({ autoPay: { jana: false } });
+await setPass({ autoPay: { jana: false }, dailyCountLimit: 50, monthlyLimitEUR: 5000 });
 p = await call('prepare_payment', { recipientId: 'jana', amount: 10, currency: 'EUR' });
 check('Jana set to "always ask" -> pass.recipient_ask', p.json.status === 'awaiting_user' && p.json.rule === 'pass.recipient_ask');
 await setPass({ autoPay: { jana: true }, allowedCurrencies: ['EUR'] });
@@ -143,7 +150,11 @@ check('consent screen rejects an unknown recipient / currency / count', (await s
 s = await api('/api/state');
 await setPass({ dailyCountLimit: s.pass.sentTodayCount });
 p = await call('prepare_payment', { recipientId: 'elisa', amount: 5, currency: 'EUR' });
-check('daily count reached -> limit.daily_count', p.json.status === 'awaiting_user' && p.json.rule === 'limit.daily_count');
+check('daily count reached -> blocked (limit.daily_count), a hard cap', p.json.status === 'blocked' && p.json.rule === 'limit.daily_count');
+await setPass({ permissions: { transfers: 'draft' } });
+p = await call('prepare_payment', { recipientId: 'elisa', amount: 5, currency: 'EUR' });
+check('daily cap also applies at the Draft level', p.json.status === 'blocked' && p.json.rule === 'limit.daily_count');
+await setPass({ permissions: { transfers: 'act' } });
 await setPass({ dailyCountLimit: 50, expiry: '1h' });
 s = await api('/api/state');
 check('expiry 1h -> expiresAt about an hour away', Math.abs(Date.parse(s.pass.expiresAt) - Date.now() - 3600e3) < 60e3 && !s.pass.expired);
@@ -189,6 +200,15 @@ check('pay all with one tap -> both paid, invoices marked paid',
   s.balances.EUR === Math.round((eurBefore - 113.2) * 100) / 100 && s.inbox.filter((i) => i.status === 'paid').length === 2);
 check('paid invoices drop out of check_invoices', (await call('check_invoices')).json.invoices.length === 2);
 check('user can add a recipient in the app', (await fetch(`http://localhost:${PORT}/api/recipients`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Test Person', iban: 'DE89 3704 0044 0532 0130 00', currency: 'EUR' }) })).ok);
+
+// --- A batch can't get around the daily cap: room for one more payment, batch of two ---
+await setPass({ dailyCountLimit: (await api('/api/state')).pass.sentTodayCount + 1, autoPay: { elisa: true } });
+const capBatch = await call('prepare_batch', { title: 'Two', payments: [
+  { recipientId: 'elisa', amount: 5, currency: 'EUR' }, { recipientId: 'elisa', amount: 6, currency: 'EUR' },
+] });
+check('batch: second payment over the daily cap is blocked', capBatch.card.items[0].status === 'awaiting_user'
+  && capBatch.card.items[1].status === 'blocked' && capBatch.card.items[1].rule === 'limit.daily_count');
+await api(`/api/batches/${capBatch.card.batchId}/decline`, 'POST');
 
 // --- Fraud check and the 5-minute approval window ---
 await setPass({ permissions: { transfers: 'act' }, allowedCurrencies: ['EUR', 'GBP', 'JPY'], dailyCountLimit: 50, monthlyLimitEUR: 5000, autoPay: { elisa: true } });
